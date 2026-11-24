@@ -1,0 +1,112 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated Google user profile and J.A.R.V.I.S preferences",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID matching the document path"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Google account display name"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Google account email address"
+        },
+        "photoUrl": {
+          "type": "string",
+          "description": "Google avatar URL"
+        },
+        "preferredLanguage": {
+          "type": "string",
+          "description": "Active J.A.R.V.I.S language preference"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp written via FieldValue.serverTimestamp()"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp written via FieldValue.serverTimestamp()"
+        }
+      },
+      "required": ["userId", "displayName", "createdAt", "updatedAt"]
+    },
+    "StudioCreation": {
+      "title": "StudioCreation",
+      "description": "Metadata for an AI-generated Image, Audio track, Video MP4, Web App, or Deep Research output owned by a signed-in Google user",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the creator"
+        },
+        "mediaType": {
+          "type": "string",
+          "enum": ["IMAGE", "AUDIO", "VIDEO", "WEB_APP", "RESEARCH"],
+          "description": "Generated artifact modality"
+        },
+        "prompt": {
+          "type": "string",
+          "description": "Prompt submitted to J.A.R.V.I.S"
+        },
+        "title": {
+          "type": "string",
+          "description": "Human-readable creation title"
+        },
+        "summary": {
+          "type": "string",
+          "description": "Storyboard or summary notes"
+        },
+        "modelUsed": {
+          "type": "string",
+          "description": "Firebase AI Logic Gemini model identifier"
+        },
+        "voiceName": {
+          "type": "string",
+          "description": "Voice preset used for audio or video narration"
+        },
+        "durationSeconds": {
+          "type": "integer",
+          "description": "Duration in seconds for audio or video creations"
+        },
+        "localFilePath": {
+          "type": "string",
+          "description": "On-device media file path for playback or sharing"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp written via FieldValue.serverTimestamp()"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp written via FieldValue.serverTimestamp()"
+        }
+      },
+      "required": ["userId", "mediaType", "prompt", "title", "modelUsed", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserProfile"
+      },
+      "description": "Signed-in Google user profile document"
+    },
+    "/users/{userId}/creations/{creationId}": {
+      "schema": {
+        "$ref": "#/entities/StudioCreation"
+      },
+      "description": "Per-user AI Studio creations (Image, Audio, Video, Web App, Research)"
+    }
+  }
+}

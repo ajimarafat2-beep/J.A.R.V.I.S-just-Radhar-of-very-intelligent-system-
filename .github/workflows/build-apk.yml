@@ -39,3 +39,22 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           
+  release:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download APK
+        uses: actions/download-artifact@v4
+        with:
+          name: Jarvis-debug-APK
+          path: apk
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: debug-${{ github.run_number }}
+          name: Jarvis debug build #${{ github.run_number }}
+          files: apk/app-debug.apk
+          prerelease: true

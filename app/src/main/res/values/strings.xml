@@ -1,4 +1,10 @@
 <resources>
+    <!-- TEMPORARY build unblock (2026-11-25): google-services.json is missing from the
+         repo, so R.string.default_web_client_id is never generated and compileDebugKotlin
+         fails. This placeholder lets the APK build; Google Sign-In will NOT work with it.
+         REMOVE this string the moment app/google-services.json is added, or the build
+         will fail with a duplicate-resource error. -->
+    <string name="default_web_client_id" translatable="false">000000000000-PLACEHOLDER.apps.googleusercontent.com</string>
     <string name="app_name">Jarvis</string>
     <string name="nav_chat">J.A.R.V.I.S</string>
     <string name="nav_studio">AI Studio &amp; Discovery</string>

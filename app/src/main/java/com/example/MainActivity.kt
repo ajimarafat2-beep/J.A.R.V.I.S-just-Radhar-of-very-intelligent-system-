@@ -166,17 +166,24 @@ private fun JarvisAppRoot(assistTriggerToken: Int) {
     var setupCompleted by rememberSaveable {
         mutableStateOf(onboardingPrefs.getBoolean("setup_done", false))
     }
-    val currentUser by remember { Firebase.auth.authStateFlow() }
-        .collectAsStateWithLifecycle(initialValue = Firebase.auth.currentUser)
+    // Firebase may be unconfigured (no google-services.json yet): Firebase.auth
+    // throws when no default FirebaseApp exists. Treat that as signed out so
+    // the app opens instead of crashing at launch.
+    val firebaseAuth = remember { runCatching { Firebase.auth }.getOrNull() }
+    val currentUser by remember(firebaseAuth) {
+        firebaseAuth?.authStateFlow() ?: kotlinx.coroutines.flow.flowOf(null)
+    }.collectAsStateWithLifecycle(initialValue = firebaseAuth?.currentUser)
 
     LaunchedEffect(Unit) {
-        attemptAutoSignIn(
-            context = context,
-            credentialManager = credentialManager,
-            onAuthSuccess = {},
-            onUnauthenticated = {},
-            scope = scope
-        )
+        if (firebaseAuth != null) {
+            attemptAutoSignIn(
+                context = context,
+                credentialManager = credentialManager,
+                onAuthSuccess = {},
+                onUnauthenticated = {},
+                scope = scope
+            )
+        }
     }
 
     when {

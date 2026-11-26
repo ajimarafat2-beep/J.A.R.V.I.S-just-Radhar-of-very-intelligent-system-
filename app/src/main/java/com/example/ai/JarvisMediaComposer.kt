@@ -3,8 +3,10 @@ package com.example.ai
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ImageDecoder
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Rect
@@ -13,6 +15,8 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.media.MediaMuxer
+import android.net.Uri
+import android.os.Build
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -21,6 +25,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
@@ -442,6 +447,68 @@ object JarvisMediaComposer {
                 }
             }
         }
+    }
+
+    suspend fun decodeSampledBitmapFromUri(
+        context: Context,
+        uri: Uri,
+        maxDimension: Int = 1280
+    ): Bitmap? = withContext(Dispatchers.IO) {
+        runCatching {
+            val resolver = context.contentResolver
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val source = ImageDecoder.createSource(resolver, uri)
+                ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    val w = info.size.width
+                    val h = info.size.height
+                    val longest = max(w, h)
+                    if (longest > maxDimension && longest > 0) {
+                        val scale = maxDimension.toFloat() / longest.toFloat()
+                        decoder.setTargetSize(
+                            (w * scale).roundToInt().coerceAtLeast(1),
+                            (h * scale).roundToInt().coerceAtLeast(1)
+                        )
+                    }
+                }
+            } else {
+                val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                resolver.openInputStream(uri)?.use { stream ->
+                    BitmapFactory.decodeStream(stream, null, boundsOpts)
+                }
+                val rawW = boundsOpts.outWidth
+                val rawH = boundsOpts.outHeight
+                var sampleSize = 1
+                if (rawW > maxDimension || rawH > maxDimension) {
+                    var halfW = rawW / 2
+                    var halfH = rawH / 2
+                    while ((halfW / sampleSize) >= maxDimension || (halfH / sampleSize) >= maxDimension) {
+                        sampleSize *= 2
+                    }
+                }
+                val decodeOpts = BitmapFactory.Options().apply {
+                    inSampleSize = sampleSize
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                }
+                val decoded = resolver.openInputStream(uri)?.use { stream ->
+                    BitmapFactory.decodeStream(stream, null, decodeOpts)
+                } ?: return@withContext null
+                val longest = max(decoded.width, decoded.height)
+                if (longest > maxDimension && longest > 0) {
+                    val scale = maxDimension.toFloat() / longest.toFloat()
+                    val scaled = Bitmap.createScaledBitmap(
+                        decoded,
+                        (decoded.width * scale).roundToInt().coerceAtLeast(1),
+                        (decoded.height * scale).roundToInt().coerceAtLeast(1),
+                        true
+                    )
+                    if (scaled !== decoded) decoded.recycle()
+                    scaled
+                } else {
+                    decoded
+                }
+            }
+        }.getOrNull()
     }
 
     fun createShareFileIntent(context: Context, filePath: String, mimeType: String, title: String): Intent? {

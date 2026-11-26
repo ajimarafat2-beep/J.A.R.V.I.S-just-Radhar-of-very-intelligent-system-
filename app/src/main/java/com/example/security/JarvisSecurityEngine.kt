@@ -93,7 +93,16 @@ object JarvisSecurityEngine {
     private val trustedStoreInstallers = setOf(
         "com.android.vending",
         "com.google.android.feedback",
-        "com.sec.android.app.samsungapps"
+        "com.sec.android.app.samsungapps",
+        "com.xiaomi.market",
+        "com.xiaomi.mipicks",
+        "com.heytap.market",
+        "com.oppo.market",
+        "com.vivo.appstore",
+        "com.bbk.appstore",
+        "com.huawei.appmarket",
+        "com.hihonor.appmarket",
+        "com.amazon.venezia"
     )
     private val suspiciousNamePatterns = Regex(
         "(trojan|spyware|stalker|keylog|stealer|hacktool|rat_|fake_update|free_nitro|mod_apk|cracked)",

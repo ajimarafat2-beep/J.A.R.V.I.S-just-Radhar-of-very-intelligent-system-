@@ -783,7 +783,7 @@ fun JarvisSecurityScreen(
                         )
                         if (password.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(8.dp))
-                            val (label, color) = evaluatePassword(password)
+                            val (label, color) = remember(password) { evaluatePassword(password) }
                             Text(
                                 text = "$label • Length ${password.length}",
                                 style = MaterialTheme.typography.labelMedium,

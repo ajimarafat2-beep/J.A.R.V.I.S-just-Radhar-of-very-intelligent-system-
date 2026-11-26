@@ -38,6 +38,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -77,6 +78,7 @@ fun JarvisTaskQueueScreen(
     modifier: Modifier = Modifier
 ) {
     val activePending = metrics.pendingCount + metrics.runningCount
+    val formatter = remember { SimpleDateFormat("hh:mm a", Locale.getDefault()) }
 
     LazyColumn(
         modifier = modifier
@@ -253,8 +255,9 @@ fun JarvisTaskQueueScreen(
                     TaskStatus.RUNNING -> JarvisCyan
                     else -> JarvisAlertRed
                 }
-                val timeFmt = SimpleDateFormat("hh:mm a", Locale.getDefault())
-                    .format(Date(task.createdAtMillis))
+                val timeFmt = remember(task.createdAtMillis) {
+                    formatter.format(Date(task.createdAtMillis))
+                }
 
                 Card(
                     colors = CardDefaults.cardColors(containerColor = JarvisSurface),

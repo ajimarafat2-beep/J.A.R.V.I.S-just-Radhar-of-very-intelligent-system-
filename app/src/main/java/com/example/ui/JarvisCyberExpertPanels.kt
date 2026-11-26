@@ -62,15 +62,21 @@ import com.example.ui.theme.JarvisSurface
 import com.example.ui.theme.JarvisSurfaceElevated
 import com.example.ui.theme.JarvisTextMuted
 import com.example.ui.theme.JarvisTextPrimary
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun NetworkAttackSurfaceCard(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    var report by remember {
-        mutableStateOf<NetworkAttackSurfaceReport?>(
+    val scope = rememberCoroutineScope()
+    var report by remember { mutableStateOf<NetworkAttackSurfaceReport?>(null) }
+    LaunchedEffect(context) {
+        report = withContext(Dispatchers.IO) {
             CyberSecurityExpertEngine.runNetworkAndDeviceHardeningAudit(context)
-        )
+        }
     }
 
     Card(
@@ -118,7 +124,13 @@ fun NetworkAttackSurfaceCard(modifier: Modifier = Modifier) {
             )
             Spacer(modifier = Modifier.height(10.dp))
             Button(
-                onClick = { report = CyberSecurityExpertEngine.runNetworkAndDeviceHardeningAudit(context) },
+                onClick = {
+                    scope.launch {
+                        report = withContext(Dispatchers.IO) {
+                            CyberSecurityExpertEngine.runNetworkAndDeviceHardeningAudit(context)
+                        }
+                    }
+                },
                 colors = ButtonDefaults.buttonColors(containerColor = JarvisGold, contentColor = JarvisNavy),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth().height(46.dp).testTag("cyber_network_audit_button")

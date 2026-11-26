@@ -1,9 +1,6 @@
 package com.example.ui
 
 import android.graphics.Bitmap
-import android.graphics.ImageDecoder
-import android.os.Build
-import android.provider.MediaStore
 import android.webkit.WebView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -63,6 +60,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,6 +79,7 @@ import com.example.agent.MediaGenUiState
 import com.example.agent.VideoGenUiState
 import com.example.agent.VisionScanUiState
 import com.example.agent.WebBuildUiState
+import com.example.ai.JarvisMediaComposer
 import com.example.ai.LiveVerifiedLink
 import com.example.data.StudioCreation
 import com.example.ui.theme.JarvisAlertRed
@@ -93,6 +92,7 @@ import com.example.ui.theme.JarvisSurface
 import com.example.ui.theme.JarvisSurfaceElevated
 import com.example.ui.theme.JarvisTextMuted
 import com.example.ui.theme.JarvisTextPrimary
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -132,20 +132,17 @@ fun JarvisStudioScreen(
 
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
 
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
-            val bmp = runCatching {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri))
-                } else {
-                    @Suppress("DEPRECATION")
-                    MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+            scope.launch {
+                JarvisMediaComposer.decodeSampledBitmapFromUri(context, uri)?.let {
+                    pickedBitmap = it
                 }
-            }.getOrNull()
-            if (bmp != null) pickedBitmap = bmp
+            }
         }
     }
 
@@ -153,15 +150,11 @@ fun JarvisStudioScreen(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
-            val bmp = runCatching {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri))
-                } else {
-                    @Suppress("DEPRECATION")
-                    MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+            scope.launch {
+                JarvisMediaComposer.decodeSampledBitmapFromUri(context, uri)?.let {
+                    referenceEditBitmap = it
                 }
-            }.getOrNull()
-            if (bmp != null) referenceEditBitmap = bmp
+            }
         }
     }
 
@@ -462,9 +455,10 @@ fun JarvisStudioScreen(
                             )
 
                             pickedBitmap?.let { bmp ->
+                                val previewImage = remember(bmp) { bmp.asImageBitmap() }
                                 Spacer(modifier = Modifier.height(10.dp))
                                 Image(
-                                    bitmap = bmp.asImageBitmap(),
+                                    bitmap = previewImage,
                                     contentDescription = "Selected preview",
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier

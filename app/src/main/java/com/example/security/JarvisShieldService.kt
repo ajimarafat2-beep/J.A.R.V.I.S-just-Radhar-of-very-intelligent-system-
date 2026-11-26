@@ -1,5 +1,7 @@
 package com.example.security
 
+import android.Manifest
+import android.app.ForegroundServiceStartNotAllowedException
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -9,6 +11,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
@@ -64,6 +67,8 @@ object JarvisShieldStateHolder {
         runCatching {
             val intent = Intent(context, JarvisShieldService::class.java)
             ContextCompat.startForegroundService(context, intent)
+        }.onFailure {
+            _state.update { s -> s.copy(shieldServiceActive = false) }
         }
     }
 
@@ -72,6 +77,20 @@ object JarvisShieldStateHolder {
             context.stopService(Intent(context, JarvisShieldService::class.java))
         }
         _state.update { it.copy(shieldServiceActive = false) }
+    }
+
+    fun scanNowIfStaleAsync(
+        context: Context,
+        maxAgeMs: Long = 90_000L,
+        onComplete: ((DeepDeviceScanReport) -> Unit)? = null
+    ) {
+        val current = _state.value
+        if (current.isScanningNow) return
+        val age = System.currentTimeMillis() - current.report.scannedAtMillis
+        if (current.report.scannedAtMillis > 0L && age in 0 until maxAgeMs) {
+            return
+        }
+        scanNowAsync(context, onComplete)
     }
 
     fun scanNowAsync(context: Context, onComplete: ((DeepDeviceScanReport) -> Unit)? = null) {
@@ -163,11 +182,28 @@ class JarvisShieldService : Service() {
             "J.A.R.V.I.S. 24/7 Threat Shield Active",
             "Monitoring new installs, permissions & phone integrity."
         )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIF_SHIELD_ID, initialNotification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        } else {
-            startForeground(NOTIF_SHIELD_ID, initialNotification)
+        val foregroundStarted = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIF_SHIELD_ID, initialNotification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else {
+                startForeground(NOTIF_SHIELD_ID, initialNotification)
+            }
+            true
+        } catch (e: Exception) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && e is ForegroundServiceStartNotAllowedException) {
+                false
+            } else if (e is SecurityException || e is IllegalStateException) {
+                false
+            } else {
+                false
+            }
         }
+        if (!foregroundStarted) {
+            JarvisShieldStateHolder.setServiceActive(false)
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+
         JarvisShieldStateHolder.setServiceActive(true)
 
         if (periodicJob?.isActive != true) {
@@ -211,7 +247,13 @@ class JarvisShieldService : Service() {
         }
     }
 
+    private fun canPostNotifications(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    }
+
     private fun updateOngoingNotification(report: DeepDeviceScanReport) {
+        if (!canPostNotifications()) return
         val nm = getSystemService(NotificationManager::class.java) ?: return
         val title = if (report.highRiskApps.isEmpty()) {
             "J.A.R.V.I.S. Shield: Phone Secure (${report.overallScore}%)"
@@ -219,7 +261,9 @@ class JarvisShieldService : Service() {
             "J.A.R.V.I.S. Alert: ${report.highRiskApps.size} Threat(s) Detected!"
         }
         val body = "${report.totalAppsScanned} apps scanned • ${report.highRiskApps.size} high-risk • ${report.cautionApps.size} caution"
-        nm.notify(NOTIF_SHIELD_ID, buildOngoingNotification(title, body))
+        runCatching {
+            nm.notify(NOTIF_SHIELD_ID, buildOngoingNotification(title, body))
+        }
     }
 
     private fun buildOngoingNotification(title: String, body: String): Notification {
@@ -239,6 +283,7 @@ class JarvisShieldService : Service() {
     }
 
     private fun postThreatAlertNotification(audit: AppSecurityAudit) {
+        if (!canPostNotifications()) return
         val nm = getSystemService(NotificationManager::class.java) ?: return
         val uninstallPending = PendingIntent.getActivity(
             this,
@@ -254,7 +299,9 @@ class JarvisShieldService : Service() {
             .setAutoCancel(true)
             .setContentIntent(uninstallPending)
             .build()
-        nm.notify(NOTIF_ALERT_BASE + (audit.packageName.hashCode() and 0x7FFF), notif)
+        runCatching {
+            nm.notify(NOTIF_ALERT_BASE + (audit.packageName.hashCode() and 0x7FFF), notif)
+        }
     }
 
     companion object {

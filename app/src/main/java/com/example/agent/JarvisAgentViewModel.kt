@@ -37,6 +37,7 @@ import com.example.wifi.JarvisWifiManager
 import com.google.firebase.ai.type.AspectRatio
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -69,7 +70,8 @@ class JarvisAgentViewModel(
     private lateinit var offlineEngine: OfflineActionEngine
     private var voiceEngine: JarvisVoiceEngine? = null
 
-    private val initialApps = connector.listInstalledApps()
+    private val _liveVoiceRmsLevel = MutableStateFlow(0f)
+    val liveVoiceRmsLevel: StateFlow<Float> = _liveVoiceRmsLevel.asStateFlow()
 
     private val _uiState = MutableStateFlow(
         JarvisAgentUiState(
@@ -83,17 +85,11 @@ class JarvisAgentViewModel(
             phoneControlState = phoneControlManager.state.value,
             shieldState = JarvisShieldStateHolder.state.value,
             nlpStatus = nlpEngine.status.value,
-            installedApps = initialApps,
-            connectedWebsites = connector.getConnectedWebsites(),
             smartDevices = smartHomeManager.devices.value,
             smartHubConfig = smartHomeManager.hubConfig.value,
-            googleHomeInstalled = smartHomeManager.isGoogleHomeInstalled(),
             vaultUnlocked = accountsManager.vaultUnlocked.value,
-            vaultDeviceSecured = accountsManager.isDeviceSecured(),
-            airbnbInstalled = accountsManager.isAirbnbAppInstalled(),
             airbnbIcalUrl = accountsManager.airbnbIcalUrl.value,
             airbnbReservations = accountsManager.airbnbReservations.value,
-            detectedBankApps = accountsManager.detectInstalledBankApps(initialApps),
             bankPortals = accountsManager.bankPortals.value
         )
     )
@@ -143,15 +139,35 @@ class JarvisAgentViewModel(
             }
         )
         observeAllStreams()
-        JarvisShieldStateHolder.syncPreference(appContext)
-        JarvisShieldStateHolder.scanNowAsync(appContext)
-        if (JarvisShieldStateHolder.state.value.continuousProtectionEnabled) {
-            JarvisShieldStateHolder.startShield(appContext)
-        }
         if (settingsRepo.settings.value.wakeWordEnabled && PermissionHelper.hasMicrophonePermission(appContext)) {
             voiceEngine?.startWakeWordListener()
         }
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val apps = connector.listInstalledApps()
+            val websites = connector.getConnectedWebsites()
+            val googleHome = smartHomeManager.isGoogleHomeInstalled()
+            val vaultSecured = accountsManager.isDeviceSecured()
+            val airbnb = accountsManager.isAirbnbAppInstalled()
+            val bankApps = accountsManager.detectInstalledBankApps(apps)
+            _uiState.update {
+                it.copy(
+                    installedApps = apps,
+                    connectedWebsites = websites,
+                    googleHomeInstalled = googleHome,
+                    vaultDeviceSecured = vaultSecured,
+                    airbnbInstalled = airbnb,
+                    detectedBankApps = bankApps
+                )
+            }
+            JarvisShieldStateHolder.syncPreference(appContext)
+            JarvisShieldStateHolder.scanNowIfStaleAsync(appContext)
+            if (JarvisShieldStateHolder.state.value.continuousProtectionEnabled) {
+                JarvisShieldStateHolder.startShield(appContext)
+            }
+            if (_uiState.value.wirelessPermissionsGranted) {
+                bluetoothManager.loadBondedDevices()
+                wifiManager.refreshActiveConnection()
+            }
             aiOrchestrator.warmUpModels()
         }
         viewModelScope.launch {
@@ -194,7 +210,7 @@ class JarvisAgentViewModel(
         voiceEngine?.let { engine ->
             viewModelScope.launch { engine.phase.collect { p -> _uiState.update { it.copy(voicePhase = p) } } }
             viewModelScope.launch { engine.partialText.collect { t -> _uiState.update { it.copy(liveTranscript = t) } } }
-            viewModelScope.launch { engine.voiceRmsLevel.collect { r -> _uiState.update { it.copy(voiceRmsLevel = r) } } }
+            viewModelScope.launch { engine.voiceRmsLevel.collect { r -> _liveVoiceRmsLevel.value = r } }
         }
         viewModelScope.launch { taskManager.isOnline.collect { o -> _uiState.update { it.copy(isOnline = o) } } }
         viewModelScope.launch { taskManager.tasks.collect { t -> _uiState.update { it.copy(tasks = t) } } }
@@ -236,23 +252,33 @@ class JarvisAgentViewModel(
         val micOk = PermissionHelper.hasMicrophonePermission(appContext)
         val camOk = PermissionHelper.hasCameraPermission(appContext)
         val notifOk = PermissionHelper.hasNotificationPermission(appContext)
-        phoneControlManager.refreshState()
-        JarvisShieldStateHolder.scanNowAsync(appContext)
+        val missingWireless = PermissionHelper.missingWirelessPermissions(appContext)
         _uiState.update {
             it.copy(
                 wirelessPermissionsGranted = wirelessOk,
                 micPermissionGranted = micOk,
                 cameraPermissionGranted = camOk,
                 notificationPermissionGranted = notifOk,
-                missingWirelessPermissions = PermissionHelper.missingWirelessPermissions(appContext),
-                googleHomeInstalled = smartHomeManager.isGoogleHomeInstalled(),
-                airbnbInstalled = accountsManager.isAirbnbAppInstalled(),
-                vaultDeviceSecured = accountsManager.isDeviceSecured()
+                missingWirelessPermissions = missingWireless
             )
         }
-        if (wirelessOk) {
-            bluetoothManager.loadBondedDevices()
-            wifiManager.refreshActiveConnection()
+        JarvisShieldStateHolder.scanNowIfStaleAsync(appContext)
+        viewModelScope.launch(Dispatchers.IO) {
+            phoneControlManager.refreshState()
+            val googleHome = smartHomeManager.isGoogleHomeInstalled()
+            val airbnb = accountsManager.isAirbnbAppInstalled()
+            val vaultSecured = accountsManager.isDeviceSecured()
+            _uiState.update {
+                it.copy(
+                    googleHomeInstalled = googleHome,
+                    airbnbInstalled = airbnb,
+                    vaultDeviceSecured = vaultSecured
+                )
+            }
+            if (wirelessOk) {
+                bluetoothManager.loadBondedDevices()
+                wifiManager.refreshActiveConnection()
+            }
         }
     }
 
@@ -1145,14 +1171,19 @@ class JarvisAgentViewModel(
 
     // Connector Hub actions
     fun refreshConnectors() {
-        val apps = connector.listInstalledApps()
-        _uiState.update {
-            it.copy(
-                installedApps = apps,
-                detectedBankApps = accountsManager.detectInstalledBankApps(apps),
-                airbnbInstalled = accountsManager.isAirbnbAppInstalled(),
-                connectedWebsites = connector.getConnectedWebsites()
-            )
+        viewModelScope.launch(Dispatchers.IO) {
+            val apps = connector.listInstalledApps()
+            val bankApps = accountsManager.detectInstalledBankApps(apps)
+            val airbnb = accountsManager.isAirbnbAppInstalled()
+            val websites = connector.getConnectedWebsites()
+            _uiState.update {
+                it.copy(
+                    installedApps = apps,
+                    detectedBankApps = bankApps,
+                    airbnbInstalled = airbnb,
+                    connectedWebsites = websites
+                )
+            }
         }
     }
     fun launchInstalledApp(packageName: String) { connector.launchApp(packageName) }

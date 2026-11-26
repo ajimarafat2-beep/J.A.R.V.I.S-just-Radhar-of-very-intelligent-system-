@@ -53,6 +53,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -81,6 +82,8 @@ import com.example.ui.theme.JarvisSurface
 import com.example.ui.theme.JarvisSurfaceElevated
 import com.example.ui.theme.JarvisTextMuted
 import com.example.ui.theme.JarvisTextPrimary
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 enum class StudioMediaMode(val label: String) {
@@ -201,10 +204,11 @@ fun StudioMediaGeneratorPanel(
                     }
 
                     referenceBitmap?.let { ref ->
+                        val refImage = remember(ref) { ref.asImageBitmap() }
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Image(
-                                bitmap = ref.asImageBitmap(),
+                                bitmap = refImage,
                                 contentDescription = "Reference photo for editing",
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier
@@ -267,8 +271,9 @@ fun StudioMediaGeneratorPanel(
                         )
                         is MediaGenUiState.Loading -> LoadingStatusRow("Synthesizing image with Nano Banana 2.1…")
                         is MediaGenUiState.Success -> {
+                            val generatedImage = remember(mediaGenState.bitmap) { mediaGenState.bitmap.asImageBitmap() }
                             Image(
-                                bitmap = mediaGenState.bitmap.asImageBitmap(),
+                                bitmap = generatedImage,
                                 contentDescription = mediaGenState.prompt,
                                 contentScale = ContentScale.FillWidth,
                                 modifier = Modifier
@@ -510,14 +515,22 @@ fun JarvisAudioPlayerCard(
                                     playerHolder.value?.release()
                                     val mp = MediaPlayer().apply {
                                         setDataSource(file.absolutePath)
+                                        setOnPreparedListener { player ->
+                                            runCatching { player.start() }
+                                        }
                                         setOnCompletionListener {
                                             isPlaying = false
                                         }
-                                        prepare()
-                                        start()
+                                        setOnErrorListener { _, _, _ ->
+                                            isPlaying = false
+                                            true
+                                        }
+                                        prepareAsync()
                                     }
                                     playerHolder.value = mp
                                     isPlaying = true
+                                }.onFailure {
+                                    isPlaying = false
                                 }
                             }
                         }
@@ -589,8 +602,9 @@ fun JarvisVideoPlayerCard(
                     modifier = Modifier.fillMaxSize()
                 )
                 if (!startedPlayback && thumbnail != null) {
+                    val thumbImage = remember(thumbnail) { thumbnail.asImageBitmap() }
                     Image(
-                        bitmap = thumbnail.asImageBitmap(),
+                        bitmap = thumbImage,
                         contentDescription = title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
@@ -709,7 +723,11 @@ fun StudioCloudCreationsCard(
             } else {
                 creations.take(15).forEach { item ->
                     val type = CreationMediaType.fromRaw(item.mediaType)
-                    val localFileExists = !item.localFilePath.isNullOrBlank() && File(item.localFilePath).exists()
+                    val localFileExists by produceState(initialValue = false, key1 = item.localFilePath) {
+                        value = withContext(Dispatchers.IO) {
+                            !item.localFilePath.isNullOrBlank() && File(item.localFilePath).exists()
+                        }
+                    }
                     Surface(
                         color = JarvisSurfaceElevated,
                         border = BorderStroke(1.dp, JarvisBorder),

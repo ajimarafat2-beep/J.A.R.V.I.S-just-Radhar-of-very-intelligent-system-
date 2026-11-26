@@ -8,15 +8,23 @@ import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.AlarmClock
 import android.provider.MediaStore
 import android.provider.Settings
 import android.view.KeyEvent
 import com.example.permissions.PermissionHelper
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import java.util.Locale
 
 enum class PhoneRingerMode(val label: String, val androidMode: Int) {
     NORMAL("Ring", AudioManager.RINGER_MODE_NORMAL),
@@ -56,14 +64,12 @@ class JarvisPhoneControlManager(context: Context) {
     private val cameraManager = appContext.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
     private val notificationManager = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
 
-    private val torchCameraId: String? = runCatching {
-        cameraManager?.cameraIdList?.firstOrNull { id ->
-            cameraManager.getCameraCharacteristics(id)
-                .get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
-        }
-    }.getOrNull()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private val _state = MutableStateFlow(PhoneControlSnapshot(hasFlashHardware = torchCameraId != null))
+    @Volatile
+    private var torchCameraId: String? = null
+
+    private val _state = MutableStateFlow(PhoneControlSnapshot(hasFlashHardware = false))
     val state: StateFlow<PhoneControlSnapshot> = _state.asStateFlow()
 
     private val torchCallback = object : CameraManager.TorchCallback() {
@@ -75,10 +81,22 @@ class JarvisPhoneControlManager(context: Context) {
     }
 
     init {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            runCatching { cameraManager?.registerTorchCallback(torchCallback, null) }
+        scope.launch {
+            val foundTorchId = runCatching {
+                cameraManager?.cameraIdList?.firstOrNull { id ->
+                    cameraManager.getCameraCharacteristics(id)
+                        .get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+                }
+            }.getOrNull()
+            torchCameraId = foundTorchId
+            if (foundTorchId != null) {
+                _state.update { it.copy(hasFlashHardware = true) }
+            }
+            runCatching {
+                cameraManager?.registerTorchCallback(torchCallback, Handler(Looper.getMainLooper()))
+            }
+            refreshState()
         }
-        refreshState()
     }
 
     fun refreshState() {
@@ -284,35 +302,61 @@ class JarvisPhoneControlManager(context: Context) {
             putExtra(AlarmClock.EXTRA_MESSAGE, label)
             putExtra(AlarmClock.EXTRA_SKIP_UI, false)
         }
-        return launchActivitySafe(intent, String.format("%02d:%02d Alarm", hour, minute))
+        return launchActivitySafe(intent, String.format(Locale.US, "%02d:%02d Alarm", hour, minute))
     }
 
     fun openSystemControlPanel(panelType: String): Result<String> {
-        val intent = when (panelType) {
+        val candidates: List<Intent> = when (panelType) {
             "internet" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY)
+                listOf(
+                    Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY),
+                    Intent(Settings.ACTION_WIRELESS_SETTINGS),
+                    Intent(Settings.ACTION_WIFI_SETTINGS),
+                    Intent(Settings.ACTION_SETTINGS)
+                )
             } else {
-                Intent(Settings.ACTION_WIRELESS_SETTINGS)
+                listOf(
+                    Intent(Settings.ACTION_WIRELESS_SETTINGS),
+                    Intent(Settings.ACTION_WIFI_SETTINGS),
+                    Intent(Settings.ACTION_SETTINGS)
+                )
             }
             "volume" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                Intent(Settings.Panel.ACTION_VOLUME)
+                listOf(
+                    Intent(Settings.Panel.ACTION_VOLUME),
+                    Intent(Settings.ACTION_SOUND_SETTINGS),
+                    Intent(Settings.ACTION_SETTINGS)
+                )
             } else {
-                Intent(Settings.ACTION_SOUND_SETTINGS)
+                listOf(Intent(Settings.ACTION_SOUND_SETTINGS), Intent(Settings.ACTION_SETTINGS))
             }
-            "display" -> Intent(Settings.ACTION_DISPLAY_SETTINGS)
-            "battery" -> Intent(Intent.ACTION_POWER_USAGE_SUMMARY)
-            "hotspot" -> Intent(Settings.ACTION_WIRELESS_SETTINGS)
-            "accessibility" -> PermissionHelper.createAccessibilitySettingsIntent()
-            "write_settings" -> PermissionHelper.createWriteSettingsIntent(appContext)
-            "dnd" -> PermissionHelper.createDndPolicySettingsIntent()
-            "speech_packs" -> Intent("com.android.settings.VOICE_INPUT_SETTINGS")
-            else -> Intent(Settings.ACTION_SETTINGS)
+            "display" -> listOf(Intent(Settings.ACTION_DISPLAY_SETTINGS), Intent(Settings.ACTION_SETTINGS))
+            "battery" -> listOf(
+                Intent(Intent.ACTION_POWER_USAGE_SUMMARY),
+                Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS),
+                Intent(Settings.ACTION_SETTINGS)
+            )
+            "hotspot" -> listOf(Intent(Settings.ACTION_WIRELESS_SETTINGS), Intent(Settings.ACTION_SETTINGS))
+            "accessibility" -> listOf(PermissionHelper.createAccessibilitySettingsIntent(), Intent(Settings.ACTION_SETTINGS))
+            "write_settings" -> listOf(PermissionHelper.createWriteSettingsIntent(appContext), Intent(Settings.ACTION_SETTINGS))
+            "dnd" -> listOf(PermissionHelper.createDndPolicySettingsIntent(), Intent(Settings.ACTION_SETTINGS))
+            "speech_packs" -> listOf(
+                Intent(Settings.ACTION_VOICE_INPUT_SETTINGS),
+                Intent("com.android.settings.VOICE_INPUT_SETTINGS"),
+                Intent(Settings.ACTION_INPUT_METHOD_SETTINGS),
+                Intent(Settings.ACTION_SETTINGS)
+            )
+            else -> listOf(Intent(Settings.ACTION_SETTINGS))
         }
-        val primary = launchActivitySafe(intent, panelType.replace('_', ' '))
-        if (primary.isFailure && panelType == "speech_packs") {
-            return launchActivitySafe(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS), "Voice & Language Settings")
+        val label = panelType.replace('_', ' ')
+        val pm = appContext.packageManager
+        for (candidate in candidates) {
+            if (candidate.resolveActivity(pm) != null) {
+                val res = launchActivitySafe(candidate, label)
+                if (res.isSuccess) return res
+            }
         }
-        return primary
+        return launchActivitySafe(Intent(Settings.ACTION_SETTINGS), label)
     }
 
     private fun launchActivitySafe(intent: Intent, label: String): Result<String> {
@@ -334,8 +378,7 @@ class JarvisPhoneControlManager(context: Context) {
     }
 
     fun release() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            runCatching { cameraManager?.unregisterTorchCallback(torchCallback) }
-        }
+        runCatching { cameraManager?.unregisterTorchCallback(torchCallback) }
+        scope.cancel()
     }
 }

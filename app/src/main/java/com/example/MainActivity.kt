@@ -83,6 +83,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.credentials.CredentialManager
 import androidx.lifecycle.Lifecycle
@@ -249,6 +250,7 @@ private fun JarvisWorkspaceApp(
         }
     }
     val agentState by agentViewModel.uiState.collectAsStateWithLifecycle()
+    val liveVoiceRmsState = agentViewModel.liveVoiceRmsLevel.collectAsStateWithLifecycle()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -335,7 +337,7 @@ private fun JarvisWorkspaceApp(
                         JarvisHologramOrb(
                             size = 38.dp,
                             activeGold = true,
-                            voiceRmsLevel = agentState.voiceRmsLevel
+                            voiceRmsProvider = { liveVoiceRmsState.value }
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
@@ -633,7 +635,7 @@ private fun JarvisWorkspaceApp(
     ) {
         JarvisEdgeBorderOverlay(
             active = agentState.edgeBorderActive,
-            voiceRmsLevel = agentState.voiceRmsLevel
+            voiceRmsProvider = { liveVoiceRmsState.value }
         ) {
             Scaffold(
                 modifier = Modifier
@@ -679,7 +681,7 @@ private fun JarvisWorkspaceApp(
                                     JarvisHologramOrb(
                                         size = 20.dp,
                                         activeGold = true,
-                                        voiceRmsLevel = agentState.voiceRmsLevel
+                                        voiceRmsProvider = { liveVoiceRmsState.value }
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
@@ -696,7 +698,9 @@ private fun JarvisWorkspaceApp(
                                             AgentRoute.SETTINGS -> "J.A.R.V.I.S • Settings"
                                         },
                                         style = MaterialTheme.typography.labelMedium,
-                                        color = JarvisTextPrimary
+                                        color = JarvisTextPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
@@ -760,7 +764,8 @@ private fun JarvisWorkspaceApp(
                         cameraAndMicLauncher.launch(PermissionHelper.cameraAndMicrophonePermissions())
                     },
                     onDismissVoiceNotice = agentViewModel::dismissVoiceNotice,
-                    modifier = screenModifier
+                    modifier = screenModifier,
+                    voiceRmsProvider = { liveVoiceRmsState.value }
                 )
 
                 AgentRoute.STUDIO -> JarvisStudioScreen(

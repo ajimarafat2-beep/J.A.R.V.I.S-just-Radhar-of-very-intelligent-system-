@@ -2,9 +2,6 @@ package com.example.ui
 
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.ImageDecoder
-import android.os.Build
-import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -78,6 +75,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -117,6 +115,7 @@ import com.example.ui.theme.JarvisTextPrimary
 import com.example.voice.VoicePhase
 
 import com.example.ai.JarvisMediaComposer
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -133,7 +132,8 @@ fun JarvisChatScreen(
     onRequestMicPermission: () -> Unit,
     onRequestCameraAndMicPermission: () -> Unit,
     onDismissVoiceNotice: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    voiceRmsProvider: (() -> Float)? = null
 ) {
     var inputText by remember { mutableStateOf("") }
     var attachedBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -141,19 +141,18 @@ fun JarvisChatScreen(
     val listState = rememberLazyListState()
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val effectiveRmsProvider: () -> Float = voiceRmsProvider ?: { uiState.voiceRmsLevel }
 
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
-            runCatching {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri))
-                } else {
-                    @Suppress("DEPRECATION")
-                    MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+            scope.launch {
+                JarvisMediaComposer.decodeSampledBitmapFromUri(context, uri)?.let {
+                    attachedBitmap = it
                 }
-            }.getOrNull()?.let { attachedBitmap = it }
+            }
         }
     }
 
@@ -185,7 +184,7 @@ fun JarvisChatScreen(
                 wakeWord = uiState.settings.wakeWord,
                 wakeWordEnabled = uiState.settings.wakeWordEnabled,
                 liveTranscript = uiState.liveTranscript,
-                rmsLevel = uiState.voiceRmsLevel,
+                rmsProvider = effectiveRmsProvider,
                 voiceNotice = uiState.voiceNotice,
                 onTapInterrupt = onToggleLiveVoice,
                 onDismissNotice = onDismissVoiceNotice
@@ -201,6 +200,7 @@ fun JarvisChatScreen(
             if (uiState.messages.isEmpty()) {
                 JarvisReplicaWelcomeCanvas(
                     uiState = uiState,
+                    voiceRmsProvider = effectiveRmsProvider,
                     onPromptClick = { onSendMessage(it, null) },
                     onOrbTap = {
                         if (!uiState.micPermissionGranted) onRequestMicPermission() else onToggleLiveVoice()
@@ -284,12 +284,13 @@ fun JarvisChatScreen(
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 attachedBitmap?.let { bmp ->
+                    val attachedImage = remember(bmp) { bmp.asImageBitmap() }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(start = 16.dp, end = 12.dp, top = 10.dp)
                     ) {
                         Image(
-                            bitmap = bmp.asImageBitmap(),
+                            bitmap = attachedImage,
                             contentDescription = "Attached photo",
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
@@ -512,6 +513,7 @@ fun JarvisChatScreen(
 @Composable
 private fun JarvisReplicaWelcomeCanvas(
     uiState: JarvisAgentUiState,
+    voiceRmsProvider: () -> Float,
     onPromptClick: (String) -> Unit,
     onOrbTap: () -> Unit,
     onToggleWakeWord: () -> Unit,
@@ -546,7 +548,9 @@ private fun JarvisReplicaWelcomeCanvas(
                     JarvisHologramOrb(
                         size = 86.dp,
                         activeGold = true,
-                        voiceRmsLevel = if (uiState.voicePhase == VoicePhase.COMMAND_LISTENING) uiState.voiceRmsLevel else 0f
+                        voiceRmsProvider = {
+                            if (uiState.voicePhase == VoicePhase.COMMAND_LISTENING) voiceRmsProvider() else 0f
+                        }
                     )
                 }
                 Spacer(modifier = Modifier.width(16.dp))
@@ -767,8 +771,9 @@ private fun JarvisChatMessageItem(
             ) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                     message.attachedBitmap?.let { bmp ->
+                        val userImage = remember(bmp) { bmp.asImageBitmap() }
                         Image(
-                            bitmap = bmp.asImageBitmap(),
+                            bitmap = userImage,
                             contentDescription = "User uploaded image",
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
@@ -837,8 +842,9 @@ private fun JarvisChatMessageItem(
                     Spacer(modifier = Modifier.height(8.dp))
                 } else {
                     message.attachedBitmap?.let { bmp ->
+                        val generatedImage = remember(bmp) { bmp.asImageBitmap() }
                         Image(
-                            bitmap = bmp.asImageBitmap(),
+                            bitmap = generatedImage,
                             contentDescription = "Generated image",
                             contentScale = ContentScale.FillWidth,
                             modifier = Modifier
@@ -991,7 +997,7 @@ private fun LiveVoiceHudStrip(
     wakeWord: String,
     wakeWordEnabled: Boolean,
     liveTranscript: String,
-    rmsLevel: Float,
+    rmsProvider: () -> Float,
     voiceNotice: String?,
     onTapInterrupt: () -> Unit,
     onDismissNotice: () -> Unit
@@ -1039,17 +1045,17 @@ private fun LiveVoiceHudStrip(
             }
             if (voicePhase == VoicePhase.COMMAND_LISTENING) {
                 Spacer(modifier = Modifier.height(6.dp))
-                Box(
+                androidx.compose.foundation.Canvas(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(3.dp)
-                        .background(JarvisSurfaceElevated, RoundedCornerShape(999.dp))
+                        .clip(RoundedCornerShape(999.dp))
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(fraction = (0.15f + rmsLevel * 0.85f).coerceIn(0.15f, 1f))
-                            .height(3.dp)
-                            .background(JarvisGold, RoundedCornerShape(999.dp))
+                    drawRect(color = JarvisSurfaceElevated)
+                    val fraction = (0.15f + rmsProvider() * 0.85f).coerceIn(0.15f, 1f)
+                    drawRect(
+                        color = JarvisGold,
+                        size = size.copy(width = size.width * fraction)
                     )
                 }
             }

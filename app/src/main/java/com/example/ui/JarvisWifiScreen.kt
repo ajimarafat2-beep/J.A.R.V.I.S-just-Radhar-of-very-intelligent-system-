@@ -120,12 +120,16 @@ fun JarvisWifiScreen(
     }
 
     val openWifiPanel: () -> Unit = {
-        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val primary = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             Intent(Settings.Panel.ACTION_WIFI)
         } else {
             Intent(Settings.ACTION_WIFI_SETTINGS)
         }
-        wifiPanelLauncher.launch(intent)
+        runCatching { wifiPanelLauncher.launch(primary) }.onFailure {
+            runCatching { wifiPanelLauncher.launch(Intent(Settings.ACTION_WIFI_SETTINGS)) }.onFailure {
+                runCatching { context.startActivity(Intent(Settings.ACTION_SETTINGS)) }
+            }
+        }
     }
 
     val isScanning = state.scanState is WifiScanState.Scanning

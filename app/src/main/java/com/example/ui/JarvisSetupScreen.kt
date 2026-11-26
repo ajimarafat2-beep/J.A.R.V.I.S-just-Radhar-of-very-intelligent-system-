@@ -420,10 +420,15 @@ fun JarvisSetupScreen(
                     actionLabel = "Open Assistant Settings",
                     testTag = "setup_perm_assistant",
                     onClick = {
+                        val pm = context.packageManager
+                        val target = listOf(
+                            Intent(Settings.ACTION_VOICE_INPUT_SETTINGS),
+                            Intent(Settings.ACTION_INPUT_METHOD_SETTINGS),
+                            Intent(Settings.ACTION_SETTINGS)
+                        ).firstOrNull { it.resolveActivity(pm) != null }
+                            ?: Intent(Settings.ACTION_SETTINGS)
                         runCatching {
-                            context.startActivity(
-                                Intent(Settings.ACTION_VOICE_INPUT_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            )
+                            context.startActivity(target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                         }
                     }
                 )

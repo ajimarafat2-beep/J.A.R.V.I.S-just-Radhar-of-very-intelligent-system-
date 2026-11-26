@@ -75,6 +75,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -160,7 +161,11 @@ fun JarvisBluetoothScreen(
                         isScanning = isScanning,
                         adapterState = state.adapterState,
                         onOpenSystemSettings = {
-                            context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                            runCatching {
+                                context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                            }.onFailure {
+                                runCatching { context.startActivity(Intent(Settings.ACTION_SETTINGS)) }
+                            }
                         }
                     )
                 }
@@ -179,7 +184,11 @@ fun JarvisBluetoothScreen(
                             if (!state.hasPermissions) {
                                 permissionLauncher.launch(viewModel.requiredPermissions())
                             } else if (state.adapterState !is BluetoothAdapterState.Enabled) {
-                                enableBtLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+                                runCatching {
+                                    enableBtLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+                                }.onFailure {
+                                    runCatching { context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
+                                }
                             } else {
                                 viewModel.toggleDiscovery()
                             }
@@ -218,7 +227,11 @@ fun JarvisBluetoothScreen(
                             actionLabel = stringResource(R.string.bt_enable),
                             actionTestTag = "enable_bluetooth_button",
                             onAction = {
-                                enableBtLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+                                runCatching {
+                                    enableBtLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+                                }.onFailure {
+                                    runCatching { context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
+                                }
                             }
                         )
                     }
@@ -444,42 +457,53 @@ private fun JarvisOrbScannerCard(
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Box(
-                    modifier = Modifier.size(96.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        val radius = size.minDimension / 2f
-                        val center = Offset(size.width / 2f, size.height / 2f)
-
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(accent.copy(alpha = 0.32f * pulse), Color.Transparent),
+                    modifier = Modifier
+                        .size(96.dp)
+                        .drawWithCache {
+                            val radius = size.minDimension / 2f
+                            val center = Offset(size.width / 2f, size.height / 2f)
+                            val radialBrush = Brush.radialGradient(
+                                colors = listOf(accent.copy(alpha = 0.30f), Color.Transparent),
                                 center = center,
                                 radius = radius
-                            ),
-                            radius = radius,
-                            center = center
-                        )
-                        drawArc(
-                            color = accent.copy(alpha = 0.85f),
-                            startAngle = rotation,
-                            sweepAngle = 220f,
-                            useCenter = false,
-                            style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
-                        )
-                        drawArc(
-                            color = accent.copy(alpha = 0.55f),
-                            startAngle = -rotation * 1.4f,
-                            sweepAngle = 150f,
-                            useCenter = false,
-                            topLeft = Offset(10.dp.toPx(), 10.dp.toPx()),
-                            size = androidx.compose.ui.geometry.Size(
-                                size.width - 20.dp.toPx(),
-                                size.height - 20.dp.toPx()
-                            ),
-                            style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
-                        )
-                    }
+                            )
+                            val outerStroke = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+                            val innerStroke = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+                            val inset = 10.dp.toPx()
+                            val innerTopLeft = Offset(inset, inset)
+                            val innerSize = androidx.compose.ui.geometry.Size(
+                                size.width - inset * 2f,
+                                size.height - inset * 2f
+                            )
+                            val outerColor = accent.copy(alpha = 0.85f)
+                            val innerColor = accent.copy(alpha = 0.55f)
+                            onDrawBehind {
+                                drawCircle(
+                                    brush = radialBrush,
+                                    radius = radius,
+                                    center = center,
+                                    alpha = pulse
+                                )
+                                drawArc(
+                                    color = outerColor,
+                                    startAngle = rotation,
+                                    sweepAngle = 220f,
+                                    useCenter = false,
+                                    style = outerStroke
+                                )
+                                drawArc(
+                                    color = innerColor,
+                                    startAngle = -rotation * 1.4f,
+                                    sweepAngle = 150f,
+                                    useCenter = false,
+                                    topLeft = innerTopLeft,
+                                    size = innerSize,
+                                    style = innerStroke
+                                )
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
 
                     Icon(
                         imageVector = when {

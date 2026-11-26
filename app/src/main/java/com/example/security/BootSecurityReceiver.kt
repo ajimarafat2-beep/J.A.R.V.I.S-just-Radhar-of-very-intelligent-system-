@@ -14,7 +14,11 @@ class BootSecurityReceiver : BroadcastReceiver() {
         if (intent?.action == Intent.ACTION_BOOT_COMPLETED &&
             JarvisSecurityEngine.isContinuousShieldPreferred(ctx)
         ) {
-            JarvisShieldStateHolder.startShield(ctx)
+            // On Android 14+ / strict OEMs, background dataSync FGS at boot may be blocked;
+            // runCatching ensures boot never crashes and shield resumes when app opens.
+            runCatching {
+                JarvisShieldStateHolder.startShield(ctx)
+            }
         }
     }
 }

@@ -67,6 +67,8 @@ class OfflineActionEngine(
     private val phoneControlManager: JarvisPhoneControlManager = JarvisPhoneControlManager(context)
 ) {
     private var torchOn = false
+    // App Connector: find, open and discover any app in the world.
+    private val appConnector = AppConnector(context, connector)
 
     suspend fun execute(rawPrompt: String, settings: JarvisSettings = JarvisSettings()): ActionExecutionResult {
         return tryLocalAction(rawPrompt, settings) ?: ActionExecutionResult(
@@ -866,19 +868,9 @@ class OfflineActionEngine(
             return launchIntentSafe(systemIntent.second, systemIntent.first, lang)
         }
 
-        val normalizedQuery = when {
-            target.contains("ইউটিউব") -> "youtube"
-            target.contains("হোয়াটসঅ্যাপ") || target.contains("হোয়াটসঅ্যাপ") -> "whatsapp"
-            target.contains("ফেসবুক") -> "facebook"
-            target.contains("টেলিগ্রাম") -> "telegram"
-            else -> target
-        }
-
-        val apps = connector.listInstalledApps()
-        val match = apps.firstOrNull { app ->
-            val name = app.appName.lowercase(Locale.getDefault())
-            name == normalizedQuery || name.contains(normalizedQuery)
-        }
+        // App Connector: resolve the spoken or typed name against installed apps
+        // (Bangla names, partial names and common variants included).
+        val match = appConnector.resolveApp(target)
 
         if (match != null) {
             val launched = connector.launchApp(match.packageName)
@@ -1406,7 +1398,19 @@ class OfflineActionEngine(
             }
             "open_app" -> {
                 val res = tryLaunchTarget(argument, lang)
-                (res?.responseText ?: "App '$argument' not found installed") to null
+                if (res != null) {
+                    res.responseText to null
+                } else if (appConnector.openPlayStoreSearch(argument)) {
+                    // App Connector: not installed — offer to find it on Play Store.
+                    localized(
+                        lang,
+                        en = "App '$argument' is not installed — opening Play Store to find it, Sir.",
+                        bn = "'$argument' অ্যপটি ইনস্টল নেই — Play Store খুলে খুঁজে দিচ্ছি, স্যার।",
+                        hi = "'$argument' इंस्टॉल नहीं है — Play Store खोलकर खोज रहा हूँ, सर।"
+                    ) to null
+                } else {
+                    "App '$argument' not found installed" to null
+                }
             }
             "smart_home_command" -> {
                 val smartRes = smartHomeManager.executeVoiceOrTextCommand(argument)

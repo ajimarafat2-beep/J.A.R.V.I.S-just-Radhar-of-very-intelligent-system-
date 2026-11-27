@@ -116,7 +116,7 @@ import com.example.voice.VoicePhase
 
 import com.example.ai.JarvisMediaComposer
 import com.mikepenz.markdown.m3.Markdown
-import com.mikepenz.markdown.m3.markdownColors
+import com.mikepenz.markdown.m3.markdownColor
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -884,7 +884,7 @@ private fun JarvisChatMessageItem(
                 } else {
                     Markdown(
                         content = message.text.ifBlank { "Thinking…" },
-                        colors = markdownColors(text = JarvisTextPrimary)
+                        colors = markdownColor(text = JarvisTextPrimary)
                     )
                 }
 

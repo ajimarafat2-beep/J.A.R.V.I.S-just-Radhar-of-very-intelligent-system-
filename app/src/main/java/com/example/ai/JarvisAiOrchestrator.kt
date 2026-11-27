@@ -371,7 +371,8 @@ class JarvisAiOrchestrator {
                        chunk.candidates.firstOrNull()?.groundingMetadata?.groundingChunks?.forEach { gChunk ->
                             val web = gChunk.web
                             val uri = web?.uri
-                                                            groundingLinks[uri] = web.title?.ifBlank { uri } ?: uri
+                    if (!uri.isNullOrBlank()) {
+                        groundingLinks[uri] = web.title?.ifBlank { uri } ?: uri
                             }
                         }
                         if (piece.isNotEmpty()) {

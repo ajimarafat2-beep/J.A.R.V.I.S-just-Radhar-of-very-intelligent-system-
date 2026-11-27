@@ -56,6 +56,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.settings.AppLanguage
 import com.example.settings.JarvisSettings
@@ -79,6 +80,8 @@ fun JarvisSettingsScreen(
     voiceDiagnostic: VoiceDiagnosticReport?,
     onSelectLanguage: (AppLanguage) -> Unit,
     onSaveWakeWord: (String) -> Unit,
+    onSaveOpenAiApiKey: (String) -> Unit,
+    onSaveAnthropicApiKey: (String) -> Unit,
     onToggleWakeWord: (Boolean) -> Unit,
     onRequestMicPermission: () -> Unit,
     onToggleLiveVoiceChat: (Boolean) -> Unit,
@@ -97,7 +100,14 @@ fun JarvisSettingsScreen(
     LaunchedEffect(settings.wakeWord) {
         wakeWordDraft = settings.wakeWord
     }
-
+    var openAiApiKeyDraft by remember { mutableStateOf(settings.openAiApiKey) }
+    var anthropicApiKeyDraft by remember { mutableStateOf(settings.anthropicApiKey) }
+    LaunchedEffect(settings.openAiApiKey) {
+            openAiApiKeyDraft = settings.openAiApiKey
+    }
+    LaunchedEffect(settings.anthropicApiKey) {
+        anthropicApiKeyDraft = settings.anthropicApiKey
+    }        
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -299,6 +309,84 @@ fun JarvisSettingsScreen(
                         .testTag("settings_default_assistant_button")
                 ) {
                     Text("Set J.A.R.V.I.S as Default Phone Assistant", color = JarvisCyan, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+        // Multi-AI API Keys
+        item {
+            SettingsCard(
+                icon = Icons.Filled.Shield,
+                title = "Multi-AI keys",
+                subtitle = "Your own API keys. They stay on this phone and are never shared.",
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = openAiApiKeyDraft,
+                        onValueChange = { openAiApiKeyDraft = it},
+                        singleLine = true,
+                        label = { Text("OpenAI API key")},
+                        placeholder = { Text("sk-...")},
+                        visualTransformation = PasswordVisualTransformation(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = JarvisCyan,
+                            unfocusedBorderColor = JarvisBorder,
+                            focusedTextColor = JarvisTextPrimary,
+                            unfocusedTextColor = JarvisTextPrimary,
+                            focusedLabelColor = JarvisCyan,
+                            unfocusedLabelColor = JarvisTextMuted
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("settings_openai_key_input")
+                    )
+                    Button(
+                        onClick = { onSaveOpenAiApiKey(openAiApiKeyDraft)},
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = JarvisCyan,
+                            contentColor = JarvisNavy
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .height(52.dp)
+                            .testTag("settings_save_openai_key_button")
+                    ) {
+                        Text("Save", fontWeight = FontWeight.Bold)
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = anthropicApiKeyDraft,
+                        onValueChange = { anthropicApiKeyDraft = it},
+                        singleLine = true,
+                        label = { Text("Anthropic API key")},
+                        placeholder = { Text("sk-ant-...")},
+                        visualTransformation = PasswordVisualTransformation(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = JarvisCyan,
+                            unfocusedBorderColor = JarvisBorder,
+                            focusedTextColor = JarvisTextPrimary,
+                            unfocusedTextColor = JarvisTextPrimary,
+                            focusedLabelColor = JarvisCyan,
+                            unfocusedLabelColor = JarvisTextMuted
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("settings_anthropic_key_input")
+                    )
+                    Button(
+                        onClick = { onSaveAnthropicApiKey(anthropicApiKeyDraft)},
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = JarvisCyan,
+                            contentColor = JarvisNavy
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .height(52.dp)
+                            .testTag("settings_save_anthropic_key_button")
+                    ) {
+                        Text("Save", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }

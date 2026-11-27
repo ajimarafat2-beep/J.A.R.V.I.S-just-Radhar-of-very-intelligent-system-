@@ -354,10 +354,21 @@ class JarvisAiOrchestrator {
         val groundingLinks = linkedMapOf<String, String>()
 
         try {
-            if (useResearch) {
+           // Multi-AI: for AI-brain questions, try Claude first, then ChatGPT
+            // using the user's own API keys from Settings; Gemini is the fallback.
+            val multiAiText = if (!useResearch && isComplexReasoningPrompt(prompt)) {
+                    runCatching { MultiAiClient().chat(prompt, settings.openAiApiKey, settings.anthropicApiKey) }.getOrNull()
+            } else {
+                    null
+            }
+            if (!multiAiText.isNullOrBlank()) {
+                    accumulated.append(multiAiText)
+                    emit(StreamChatEvent.Chunk(accumulated.toString(), route))
+            } else if (useResearch) {
                 withTimeout(AI_TIMEOUT_MS) {
                     deepResearchModel.generateContentStream(enrichedPrompt).collect { chunk ->
                         val piece = chunk.text.orEmpty()
+
                         chunk.candidates.firstOrNull()?.groundingMetadata?.groundingChunks?.forEach { gChunk ->
                             val web = gChunk.web
                             val uri = web?.uri

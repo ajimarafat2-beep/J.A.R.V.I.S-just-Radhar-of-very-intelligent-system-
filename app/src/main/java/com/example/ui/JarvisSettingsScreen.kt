@@ -140,7 +140,7 @@ fun JarvisSettingsScreen(
             SettingsCard(
                 icon = Icons.Filled.Language,
                 title = "Assistant Language",
-                subtitle = "English is the default language. Switch anytime."
+                subtitle = "Auto-Detect is the default — Jarvis replies in the language you use. Switch anytime."
             ) {
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),

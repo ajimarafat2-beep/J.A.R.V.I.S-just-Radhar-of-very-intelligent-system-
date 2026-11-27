@@ -43,6 +43,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -69,6 +70,7 @@ class JarvisAgentViewModel(
     private lateinit var taskManager: OfflineTaskManager
     private lateinit var offlineEngine: OfflineActionEngine
     private var voiceEngine: JarvisVoiceEngine? = null
+    private var sendJob: Job? = null
 
     private val _liveVoiceRmsLevel = MutableStateFlow(0f)
     val liveVoiceRmsLevel: StateFlow<Float> = _liveVoiceRmsLevel.asStateFlow()
@@ -107,7 +109,7 @@ class JarvisAgentViewModel(
                     engineRoute = AiEngineRoute.GEMINI_CONVERSATION
                 )
                 _uiState.update { it.copy(messages = it.messages + msg) }
-                if (settingsRepo.settings.value.voiceReplyEnabled) {
+                if (shouldSpeakReply()) {
                     voiceEngine?.speak(msg.text, settingsRepo.settings.value)
                 }
             }
@@ -381,7 +383,7 @@ class JarvisAgentViewModel(
 
     fun toggleWakeWord(enabled: Boolean) {
         settingsRepo.setWakeWordEnabled(enabled)
-        if (enabled) voiceEngine?.startWakeWordListener() else voiceEngine?.stopAllListening()
+        if (enabled) voiceEngine?.startWakeWordListener() else voiceEngine?.stopWakeWordListener()
     }
 
     fun setLanguage(language: AppLanguage) = settingsRepo.setLanguage(language)
@@ -410,7 +412,7 @@ class JarvisAgentViewModel(
     fun toggleVoiceReply() = setVoiceReplyEnabled(!_uiState.value.settings.voiceReplyEnabled)
 
     fun startNewChat() {
-        voiceEngine?.stopSpeakingOnly()
+        voiceEngine?.stopLiveVoiceSession()
         aiOrchestrator.resetConversationMemory()
         _uiState.update { it.copy(messages = emptyList(), isProcessing = false) }
     }
@@ -419,9 +421,28 @@ class JarvisAgentViewModel(
         voiceEngine?.speak(text, _uiState.value.settings)
     }
 
+    /** Stops a generating answer (used by the stop button). */
+    fun stopGeneration() {
+        sendJob?.cancel()
+        sendJob = null
+        voiceEngine?.stopSpeakingOnly()
+        _uiState.update { state ->
+            state.copy(
+                isProcessing = false,
+                messages = state.messages.map { if (it.isStreaming) it.copy(isStreaming = false) else it }
+            )
+        }
+    }
+
+    /** Speak a reply out loud when voice replies are on, or during a live voice chat. */
+    private fun shouldSpeakReply(): Boolean =
+        _uiState.value.settings.voiceReplyEnabled || (voiceEngine?.isLiveVoiceActive() == true)
+
     fun sendMessage(rawInput: String, attachedImage: Bitmap? = null) {
         val prompt = rawInput.trim()
         if (prompt.isEmpty() && attachedImage == null) return
+        // Ignore rapid double-sends while a reply is still streaming.
+        if (sendJob?.isActive == true) return
 
         val displayPrompt = prompt.ifEmpty { "Analyze this image cleanly, Sir." }
         val userMsg = AgentMessage(
@@ -431,7 +452,7 @@ class JarvisAgentViewModel(
         )
         _uiState.update { it.copy(messages = it.messages + userMsg, isProcessing = true) }
 
-        viewModelScope.launch {
+        sendJob = viewModelScope.launch {
             val settings = _uiState.value.settings
             if (attachedImage != null) {
                 if (!taskManager.canExecuteOnlineNow()) {
@@ -793,7 +814,7 @@ class JarvisAgentViewModel(
                             }
                         )
                     }
-                    if (_uiState.value.settings.voiceReplyEnabled) {
+                    if (shouldSpeakReply()) {
                         voiceEngine?.speak(event.fullText, _uiState.value.settings)
                     }
                 }
@@ -844,7 +865,7 @@ class JarvisAgentViewModel(
             isError = isError
         )
         _uiState.update { it.copy(messages = it.messages + msg, isProcessing = false) }
-        if (!isError && _uiState.value.settings.voiceReplyEnabled) {
+        if (!isError && shouldSpeakReply()) {
             voiceEngine?.speak(text, _uiState.value.settings)
         }
     }

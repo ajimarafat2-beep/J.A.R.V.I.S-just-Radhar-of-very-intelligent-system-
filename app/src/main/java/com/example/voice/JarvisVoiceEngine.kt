@@ -156,6 +156,35 @@ class JarvisVoiceEngine(
         }
     }
 
+    /** Stops only the wake-word listener; an active live conversation keeps going. */
+    fun stopWakeWordListener() {
+        wakeModeActive = false
+        if (!liveSessionActive) {
+            mainHandler.post {
+                runCatching { speechRecognizer?.cancel() }
+                _phase.value = VoicePhase.IDLE
+            }
+        }
+    }
+
+    /** Ends a live voice session (and any speech), returning to wake listening if enabled. */
+    fun stopLiveVoiceSession() {
+        liveSessionActive = false
+        _partialText.value = ""
+        _voiceRmsLevel.value = 0f
+        mainHandler.post {
+            runCatching { speechRecognizer?.cancel() }
+            stopSpeakingOnly()
+            if (wakeModeActive && currentSettings.wakeWordEnabled) {
+                beginRecognition(isWakePass = true)
+            } else {
+                _phase.value = VoicePhase.IDLE
+            }
+        }
+    }
+
+    fun isLiveVoiceActive(): Boolean = liveSessionActive
+
     fun interruptAndListen() {
         stopSpeakingOnly()
         startLiveVoiceChat()
@@ -200,7 +229,7 @@ class JarvisVoiceEngine(
             appendLine("• Wake Word: \"${settings.wakeWord}\" | Rate: ${String.format(Locale.US, "%.2fx", settings.speechRate)}")
         }.trim()
 
-        if (speakVerification && settings.voiceReplyEnabled && ttsReady) {
+        if (speakVerification && ttsReady) {
             val testPhrase = when (settings.language) {
                 AppLanguage.BENGALI -> "এজেন্ট এবং ভয়েস অ্যাক্সেস অফলাইন ইঞ্জিন পরীক্ষা সম্পন্ন হয়েছে, স্যার। বাংলা ও ইংরেজি কমান্ড প্রস্তুত।"
                 AppLanguage.HINDI -> "एजेंट और लाइव वॉइस जांच पूरी हो गई है, सर। मेरी आवाज़ और भाषा बिल्कुल स्पष्ट है।"
@@ -226,11 +255,12 @@ class JarvisVoiceEngine(
 
     fun speak(text: String, settings: JarvisSettings) {
         currentSettings = settings
-        if (!settings.voiceReplyEnabled || !ttsReady) {
+        if (!ttsReady) {
+            onVoiceError("Voice is not ready yet — please try again in a moment.")
             handleSpeechCompleted()
             return
         }
-        val cleanText = formatForClearSpeech(text).take(750)
+        val cleanText = formatForClearSpeech(text)
         if (cleanText.isEmpty()) {
             handleSpeechCompleted()
             return
@@ -258,14 +288,19 @@ class JarvisVoiceEngine(
             tts.isLanguageAvailable(locale) >= TextToSpeech.LANG_AVAILABLE -> locale
             locale.language == "bn" && tts.isLanguageAvailable(Locale("bn", "IN")) >= TextToSpeech.LANG_AVAILABLE ->
                 Locale("bn", "IN")
-            else -> Locale.US
+            // Never fall back to an English voice for Bengali/Hindi text.
+            else -> locale
         }
         tts.language = resolvedLocale
+        val sameLanguage = tts.voices?.filter { it.locale.language == resolvedLocale.language }
         val bestVoice = runCatching {
-            tts.voices
-                ?.filter { it.locale.language == resolvedLocale.language && !it.isNetworkConnectionRequired }
-                ?.maxByOrNull { it.quality }
-                ?: tts.voices?.firstOrNull { it.locale.language == resolvedLocale.language }
+            if (isNetworkOnline()) {
+                // Online: prefer the best natural (network) voice, not offline-only.
+                sameLanguage?.maxByOrNull { it.quality } ?: sameLanguage?.firstOrNull()
+            } else {
+                sameLanguage?.filter { !it.isNetworkConnectionRequired }?.maxByOrNull { it.quality }
+                    ?: sameLanguage?.firstOrNull()
+            }
         }.getOrNull()
 
         if (bestVoice != null) {
@@ -342,17 +377,34 @@ class JarvisVoiceEngine(
                 override fun onError(error: Int) {
                     _partialText.value = ""
                     _voiceRmsLevel.value = 0f
-                    if (isWakePass && wakeModeActive && currentSettings.wakeWordEnabled) {
-                        if (error == SpeechRecognizer.ERROR_NO_MATCH ||
-                            error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+                    if (error == SpeechRecognizer.ERROR_CLIENT) {
+                        // Cancelled by us (e.g. stop) — stay quiet and idle.
+                        _phase.value = VoicePhase.IDLE
+                        return
+                    }
+                    val backoffMs = when (error) {
+                        SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> 150L
+                        else -> 1500L
+                    }
+                    if (isWakePass) {
+                        if (wakeModeActive && currentSettings.wakeWordEnabled &&
+                            error != SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS
                         ) {
+                            // Wake loop restarts on every recoverable error (network,
+                            // server, busy, audio, no-match, timeout) instead of dying.
                             mainHandler.postDelayed({
                                 if (wakeModeActive) beginRecognition(isWakePass = true)
-                            }, 120L)
-                            return
+                            }, backoffMs)
+                        } else {
+                            _phase.value = VoicePhase.IDLE
+                            if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+                                onVoiceError(mapRecognitionError(error))
+                            }
                         }
+                        return
                     }
-                    if (!isWakePass && liveSessionActive && error == SpeechRecognizer.ERROR_NO_MATCH) {
+                    // Command mode (live voice session).
+                    if (error == SpeechRecognizer.ERROR_NO_MATCH) {
                         liveSessionActive = false
                         _phase.value = VoicePhase.IDLE
                         onVoiceError(mapRecognitionError(error))
@@ -361,11 +413,19 @@ class JarvisVoiceEngine(
                         }
                         return
                     }
-                    _phase.value = VoicePhase.IDLE
-                    if (error != SpeechRecognizer.ERROR_CLIENT) {
-                        Log.w(TAG, "SpeechRecognizer error code: $error")
-                        onVoiceError(mapRecognitionError(error))
+                    if (liveSessionActive && error != SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+                        // Recoverable error mid-conversation: keep the session alive
+                        // and listen again instead of leaving it stuck.
+                        Log.w(TAG, "SpeechRecognizer error code: $error — restarting live listening")
+                        mainHandler.postDelayed({
+                            if (liveSessionActive) beginRecognition(isWakePass = false)
+                        }, backoffMs)
+                        return
                     }
+                    liveSessionActive = false
+                    _phase.value = VoicePhase.IDLE
+                    Log.w(TAG, "SpeechRecognizer error code: $error")
+                    onVoiceError(mapRecognitionError(error))
                 }
 
                 override fun onResults(results: Bundle?) {
@@ -443,8 +503,8 @@ class JarvisVoiceEngine(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, currentSettings.language.bcp47Tag)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 950L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 750L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1800L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
         }
         runCatching { speechRecognizer?.startListening(intent) }
             .onFailure {

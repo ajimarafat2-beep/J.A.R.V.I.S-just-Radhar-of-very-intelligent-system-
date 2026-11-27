@@ -8,18 +8,18 @@ import kotlinx.coroutines.flow.update
 import java.util.Locale
 
 enum class AppLanguage(val displayName: String, val bcp47Tag: String) {
-    ENGLISH("English (Default)", "en-US"),
+    ENGLISH("English", "en-US"),
     BENGALI("বাংলা (Bengali)", "bn-BD"),
     HINDI("हिंदी (Hindi)", "hi-IN"),
-    AUTO("Auto-Detect", "en-US")
+    AUTO("Auto-Detect (Default)", "en-US")
 }
 
 data class JarvisSettings(
-    val language: AppLanguage = AppLanguage.ENGLISH,
+    val language: AppLanguage = AppLanguage.AUTO,
     val wakeWord: String = "Jarvis",
     val wakeWordEnabled: Boolean = false,
     val liveVoiceChatEnabled: Boolean = true,
-    val voiceReplyEnabled: Boolean = true,
+    val voiceReplyEnabled: Boolean = false,
     val speechRate: Float = 1.0f,
     val speechPitch: Float = 1.0f,
     val offlineIsolationMode: Boolean = false,
@@ -36,15 +36,15 @@ class JarvisSettingsRepository(context: Context) {
     val settings: StateFlow<JarvisSettings> = _settings.asStateFlow()
 
     private fun loadSettings(): JarvisSettings {
-        val langName = prefs.getString(KEY_LANGUAGE, AppLanguage.ENGLISH.name)
-        val lang = AppLanguage.entries.firstOrNull { it.name == langName } ?: AppLanguage.ENGLISH
+        val langName = prefs.getString(KEY_LANGUAGE, AppLanguage.AUTO.name)
+        val lang = AppLanguage.entries.firstOrNull { it.name == langName } ?: AppLanguage.AUTO
         return JarvisSettings(
             language = lang,
             wakeWord = prefs.getString(KEY_WAKE_WORD, "Jarvis")
                 ?.takeIf { it.isNotBlank() } ?: "Jarvis",
             wakeWordEnabled = prefs.getBoolean(KEY_WAKE_ENABLED, false),
             liveVoiceChatEnabled = prefs.getBoolean(KEY_LIVE_VOICE, true),
-            voiceReplyEnabled = prefs.getBoolean(KEY_VOICE_REPLY, true),
+            voiceReplyEnabled = prefs.getBoolean(KEY_VOICE_REPLY, false),
             speechRate = prefs.getFloat(KEY_SPEECH_RATE, 1.0f).coerceIn(0.6f, 1.6f),
             speechPitch = prefs.getFloat(KEY_SPEECH_PITCH, 1.0f).coerceIn(0.7f, 1.4f),
             offlineIsolationMode = prefs.getBoolean(KEY_OFFLINE_ISOLATION, false),

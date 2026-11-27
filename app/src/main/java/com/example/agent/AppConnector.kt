@@ -54,6 +54,22 @@ class AppConnector(
         return null
     }
 
+    /**
+     * Strict app-name match: exact name or name starts with the query only.
+     * Used for bare messages ("youtube") so a whole chat sentence can never
+     * fuzzy-match an unrelated app ("hi" must not open TikTok).
+     */
+    fun resolveAppStrict(queryRaw: String): InstalledAppEntry? {
+        val query = normalizeQuery(queryRaw)
+        if (query.isEmpty()) return null
+        val apps = connector.listInstalledApps()
+        if (apps.isEmpty()) return null
+        val normalized = apps.map { app -> app to normalizeName(app.appName) }
+        normalized.firstOrNull { (_, name) -> name == query }?.let { return it.first }
+        normalized.firstOrNull { (_, name) -> name.startsWith(query) }?.let { return it.first }
+        return null
+    }
+
     /** Open an installed app by name. Returns true when it launched. */
     fun openAppByName(query: String): Boolean {
         val match = resolveApp(query) ?: return false

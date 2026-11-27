@@ -18,6 +18,7 @@ data class JarvisSettings(
     val language: AppLanguage = AppLanguage.AUTO,
     val wakeWord: String = "Jarvis",
     val wakeWordEnabled: Boolean = false,
+    val addressName: String = "Sir",
     val liveVoiceChatEnabled: Boolean = true,
     val voiceReplyEnabled: Boolean = false,
     val speechRate: Float = 1.0f,
@@ -43,6 +44,8 @@ class JarvisSettingsRepository(context: Context) {
             wakeWord = prefs.getString(KEY_WAKE_WORD, "Jarvis")
                 ?.takeIf { it.isNotBlank() } ?: "Jarvis",
             wakeWordEnabled = prefs.getBoolean(KEY_WAKE_ENABLED, false),
+            addressName = prefs.getString(KEY_ADDRESS_NAME, "Sir")
+                ?.takeIf { it.isNotBlank() } ?: "Sir",
             liveVoiceChatEnabled = prefs.getBoolean(KEY_LIVE_VOICE, true),
             voiceReplyEnabled = prefs.getBoolean(KEY_VOICE_REPLY, false),
             speechRate = prefs.getFloat(KEY_SPEECH_RATE, 1.0f).coerceIn(0.6f, 1.6f),
@@ -67,6 +70,12 @@ class JarvisSettingsRepository(context: Context) {
     fun setWakeWordEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_WAKE_ENABLED, enabled).apply()
         _settings.update { it.copy(wakeWordEnabled = enabled) }
+    }
+
+    fun setAddressName(name: String) {
+        val clean = name.trim().ifBlank { "Sir" }
+        prefs.edit().putString(KEY_ADDRESS_NAME, clean).apply()
+        _settings.update { it.copy(addressName = clean) }
     }
 
     fun setLiveVoiceChatEnabled(enabled: Boolean) {
@@ -117,6 +126,7 @@ class JarvisSettingsRepository(context: Context) {
         private const val KEY_LANGUAGE = "language"
         private const val KEY_WAKE_WORD = "wake_word"
         private const val KEY_WAKE_ENABLED = "wake_enabled"
+        private const val KEY_ADDRESS_NAME = "address_name"
         private const val KEY_LIVE_VOICE = "live_voice"
         private const val KEY_VOICE_REPLY = "voice_reply"
         private const val KEY_SPEECH_RATE = "speech_rate"

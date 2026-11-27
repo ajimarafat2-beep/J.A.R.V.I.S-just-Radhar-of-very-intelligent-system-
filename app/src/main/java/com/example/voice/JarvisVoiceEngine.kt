@@ -454,10 +454,27 @@ class JarvisVoiceEngine(
                                 liveSessionActive = currentSettings.liveVoiceChatEnabled
                                 onTranscriptReady(inlineCommand)
                             } else {
+                                val address = currentSettings.addressName.ifBlank { "Sir" }
+                                val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
                                 val greeting = when (currentSettings.language) {
-                                    AppLanguage.BENGALI -> "হ্যাঁ স্যার, বলুন আমি শুনছি।"
-                                    AppLanguage.HINDI -> "जी सर, बताइए मैं सुन रहा हूँ।"
-                                    else -> "Yes Sir, I am listening."
+                                    AppLanguage.BENGALI -> when (hour) {
+                                        in 5..11 -> "শুভ সকাল, $address। বলুন আমি শুনছি।"
+                                        in 12..16 -> "শুভ দুপুর, $address। বলুন আমি শুনছি।"
+                                        in 17..20 -> "শুভ সন্ধ্যা, $address। বলুন আমি শুনছি।"
+                                        else -> "হ্যাঁ $address, বলুন আমি শুনছি। অনেক রাত হয়েছে, শরীরের যত্ন নেবেন।"
+                                    }
+                                    AppLanguage.HINDI -> when (hour) {
+                                        in 5..11 -> "शुभ प्रभात, $address। बताइए मैं सुन रहा हूँ।"
+                                        in 12..16 -> "शुभ दोपहर, $address। बताइए मैं सुन रहा हूँ।"
+                                        in 17..20 -> "शुभ संध्या, $address। बताइए मैं सुन रहा हूँ।"
+                                        else -> "जी $address, बताइए मैं सुन रहा हूँ। देर रात हो गई है, अपना ख्याल रखिएगा।"
+                                    }
+                                    else -> when (hour) {
+                                        in 5..11 -> "Good morning, $address. I am listening."
+                                        in 12..16 -> "Good afternoon, $address. I am listening."
+                                        in 17..20 -> "Good evening, $address. I am listening."
+                                        else -> "Yes $address, I am listening. It is late — do take care of your rest."
+                                    }
                                 }
                                 liveSessionActive = true
                                 speak(greeting, currentSettings)
@@ -567,8 +584,11 @@ class JarvisVoiceEngine(
          */
         fun formatForClearSpeech(raw: String): String {
             return raw
-                .replace(Regex("https?://www\\."), "")
-                .replace(Regex("https?://"), "")
+                .replace(Regex("```[\\s\\S]*?```"), " code ")
+                .replace(Regex("\\[([^\\]]+)\\]\\([^\\)]+\\)"), "$1")
+                .replace(Regex("https?://\\S+"), " link ")
+                .replace(Regex("www\\.\\S+"), " link ")
+                .replace(Regex("<[^>]+>"), " ")
                 .replace("°C", " degrees Celsius")
                 .replace("Mbps", " megabits per second")
                 .replace("RPM", " R P M")

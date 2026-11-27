@@ -332,13 +332,52 @@ fun JarvisChatScreen(
                     }
                 }
 
+                // In-card mode chips (NUSU-style): Jarvis mode + Code mode
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 12.dp, top = 10.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = JarvisCyan.copy(alpha = 0.18f),
+                        modifier = Modifier.testTag("composer_chip_jarvis")
+                    ) {
+                        Text(
+                            text = "Jarvis",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = JarvisCyan,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = JarvisSurfaceElevated,
+                        modifier = Modifier
+                            .testTag("composer_chip_code")
+                            .clickable {
+                                if (inputText.isBlank()) inputText = "Write code for "
+                            }
+                    ) {
+                        Text(
+                            text = "<> Code",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = JarvisTextPrimary,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+
                 // Exact Google Gemini 2-row Capsule Composer: text input above, action icons below
                 TextField(
                     value = inputText,
                     onValueChange = { inputText = it },
                     placeholder = {
                         Text(
-                            text = "Ask J.A.R.V.I.S",
+                            text = "Message Jarvis",
                             color = JarvisTextMuted,
                             style = MaterialTheme.typography.bodyLarge
                         )
@@ -433,9 +472,19 @@ fun JarvisChatScreen(
                     val isGenerating = uiState.isProcessing
                     Surface(
                         shape = CircleShape,
-                        color = if (!isGenerating && canSend) JarvisCyan else JarvisSurfaceElevated,
+                        color = Color.Transparent,
                         modifier = Modifier
                             .size(44.dp)
+                            .background(
+                                brush = if (!isGenerating && canSend) {
+                                    Brush.linearGradient(colors = listOf(JarvisGold, JarvisCyan))
+                                } else {
+                                    Brush.linearGradient(
+                                        colors = listOf(JarvisSurfaceElevated, JarvisSurfaceElevated)
+                                    )
+                                },
+                                shape = CircleShape
+                            )
                             .testTag("chat_send_button")
                             .clickable {
                                 if (isGenerating) {

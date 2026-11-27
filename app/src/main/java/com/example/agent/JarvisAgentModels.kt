@@ -23,6 +23,7 @@ import com.example.voice.VoicePhase
 import java.util.UUID
 
 enum class AgentRoute {
+    AGENT_BOARD,
     CHAT,
     STUDIO,
     PHONE_CONTROL,

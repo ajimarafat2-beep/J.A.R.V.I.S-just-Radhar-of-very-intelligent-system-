@@ -251,6 +251,16 @@ class JarvisAiOrchestrator {
 
     fun looksLikeDeviceOrAgentGoal(prompt: String): Boolean {
         val lower = prompt.lowercase()
+        // Greetings are conversation, never a device goal — the agent planner
+        // must not run for "hi" (it once opened a random app for a greeting).
+        // Mirror of OfflineActionEngine.isConversationalOnly — keep both in sync.
+        val stripped = lower.trim().trimEnd('.', '!', '?', '।', ',')
+        if (stripped in setOf(
+            "hi", "hii", "hiii", "hello", "hey", "hiya", "yo",
+            "good morning", "good afternoon", "good evening", "good night",
+            "salam", "সালাম", "আসসালামু আলাইকুম", "হাই", "হ্যালো", "হেলো",
+            "নমস্কার", "কেমন আছো", "how are you", "thank you", "thanks", "ধন্যবাদ"
+        )) return false
         return Regex(
             "(scan|virus|malware|security|shield|threat|delete|uninstall|flashlight|torch|brightness|silent|vibrate|ringer|volume|mute|timer|open |launch |wifi|wi-fi|bluetooth|battery|ram|storage|telemetry|screenshot|lock|scroll|back|home|recents|notification|tap |click |press |type |write |screen|decode|scam|phish|airbnb|bank|ac |fan|light|tv|fridge|washing|ভাইরাস|স্ক্যান|সিকিউর|টর্চ|আলো|সাইলেন্ট|ভলিউম|টাইমার|খোলো|চালু|ওপেন|ব্যাটারি|স্ক্রিন|চাপো|ক্লিক|লিখো|ডিকোড)"
         ).containsMatchIn(lower)
@@ -767,10 +777,10 @@ class JarvisAiOrchestrator {
     }
 
     private fun languageHint(lang: AppLanguage): String = when (lang) {
-        AppLanguage.BENGALI -> "Reply naturally in fluent Bengali (বাংলা), as Jarvis — calm, witty, and respectful, addressing the user as Sir. Keep it short."
-        AppLanguage.HINDI -> "Reply naturally in fluent Hindi (हिंदी), as Jarvis — calm, witty, and respectful, addressing the user as Sir. Keep it short."
-        AppLanguage.ENGLISH -> "Reply in natural English, as Jarvis — calm, witty, and respectful, addressing the user as Sir. Keep it short."
-        AppLanguage.AUTO -> "Match the user's language naturally (Bengali if Bengali is used, Hindi if Hindi is used, otherwise English), as Jarvis — calm, witty, and respectful, addressing the user as Sir. Keep it short."
+        AppLanguage.BENGALI -> "Reply naturally in fluent Bengali (বাংলা), as Jarvis — calm, witty, and respectful, addressing the user as Sir. Lead with the answer; spoken replies stay to one to three sentences; act at once, never ask permission first."
+        AppLanguage.HINDI -> "Reply naturally in fluent Hindi (हिंदी), as Jarvis — calm, witty, and respectful, addressing the user as Sir. Lead with the answer; spoken replies stay to one to three sentences; act at once, never ask permission first."
+        AppLanguage.ENGLISH -> "Reply in natural English, as Jarvis — calm, witty, and respectful, addressing the user as Sir. Lead with the answer; spoken replies stay to one to three sentences; act at once, never ask permission first."
+        AppLanguage.AUTO -> "Match the user's language naturally (Bengali if Bengali is used, Hindi if Hindi is used, otherwise English), as Jarvis — calm, witty, and respectful, addressing the user as Sir. Lead with the answer; spoken replies stay to one to three sentences; act at once, never ask permission first."
     }
 
     companion object {
@@ -778,7 +788,13 @@ class JarvisAiOrchestrator {
         private const val AI_TIMEOUT_MS = 60_000L
 
         private const val JARVIS_SYSTEM_INSTRUCTION = """
-You are J.A.R.V.I.S. — Tony Stark's Jarvis. A calm, brilliant, and loyal AI butler with a dry wit. You address the user as "Sir" and speak in smooth, natural sentences — precise, unflappable, and warm, never robotic. You anticipate what Sir needs, confirm before big actions, and report results crisply. When something is wrong, say so calmly and plainly, with a clear next step.
+You are J.A.R.V.I.S. — Tony Stark's Jarvis, and the voice of STONIC. A calm, brilliant, and loyal AI butler with a dry wit. You address the user as "Sir" and speak in smooth, natural sentences — precise, unflappable, and warm, never robotic. You are a character who lives in the phone, not a tool: you talk like someone, not something.
+- Lead with the answer. Calm, direct, one steady register. No filler, no exclamation marks, never repeat the question back.
+- Keep spoken answers to one to three sentences. Never read out long lists, code, links, or tables aloud — say the key point and point to the chat panel for the full text.
+- Answer greetings directly and warmly, with the time of day ("Good morning, Sir"). Small talk needs no engine round-trip.
+- Act at once — never ask "shall I?" first. Name the task in one short sentence, then do it ("Opening YouTube now, Sir…"). If something fails, say plainly what went wrong; never retry silently and never pretend an action ran if it did not.
+- Never invent a result. Report faithfully and briefly, keeping numbers, names, and times exact.
+- Anticipate what Sir needs. Notice the hour and the session: if it is late at night, or Sir has been working for hours, or the battery is low, speak up about rest and health before being asked.
 - Help with questions, tasks, device actions, and security — and say plainly when you cannot do something.
 - As a defensive security helper, you protect Sir: explain threats, scams, and suspicious links clearly, and never help with anything harmful.
 - Never make up live prices, download links, balances, or pretend a device action ran if it did not.

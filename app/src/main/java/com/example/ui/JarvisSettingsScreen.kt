@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shield
@@ -80,6 +81,7 @@ fun JarvisSettingsScreen(
     voiceDiagnostic: VoiceDiagnosticReport?,
     onSelectLanguage: (AppLanguage) -> Unit,
     onSaveWakeWord: (String) -> Unit,
+    onSaveAddressName: (String) -> Unit,
     onSaveOpenAiApiKey: (String) -> Unit,
     onSaveAnthropicApiKey: (String) -> Unit,
     onToggleWakeWord: (Boolean) -> Unit,
@@ -96,9 +98,13 @@ fun JarvisSettingsScreen(
     modifier: Modifier = Modifier
 ) {
     var wakeWordDraft by remember { mutableStateOf(settings.wakeWord) }
+    var addressDraft by remember { mutableStateOf(settings.addressName) }
     val context = LocalContext.current
     LaunchedEffect(settings.wakeWord) {
         wakeWordDraft = settings.wakeWord
+    }
+    LaunchedEffect(settings.addressName) {
+        addressDraft = settings.addressName
     }
     var openAiApiKeyDraft by remember { mutableStateOf(settings.openAiApiKey) }
     var anthropicApiKeyDraft by remember { mutableStateOf(settings.anthropicApiKey) }
@@ -159,6 +165,76 @@ fun JarvisSettingsScreen(
                                 labelColor = JarvisTextPrimary
                             ),
                             modifier = Modifier.testTag("settings_lang_${lang.name}")
+                        )
+                    }
+                }
+            }
+        }
+
+        // 1b. How Jarvis addresses you (Sir / Arafat / your name)
+        item {
+            SettingsCard(
+                icon = Icons.Filled.Person,
+                title = "What should Jarvis call you?",
+                subtitle = "Jarvis asks once and then always addresses you this way — \"Sir\", \"Arafat\", or any name you choose. Used in the wake greeting and in conversation."
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedTextField(
+                        value = addressDraft,
+                        onValueChange = { addressDraft = it },
+                        singleLine = true,
+                        label = { Text("Name — e.g. Sir, Arafat") },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = JarvisCyan,
+                            unfocusedBorderColor = JarvisBorder,
+                            focusedTextColor = JarvisTextPrimary,
+                            unfocusedTextColor = JarvisTextPrimary,
+                            focusedLabelColor = JarvisCyan,
+                            unfocusedLabelColor = JarvisTextMuted
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("settings_address_name_input")
+                    )
+                    Button(
+                        onClick = { onSaveAddressName(addressDraft) },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = JarvisCyan,
+                            contentColor = JarvisNavy
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .height(52.dp)
+                            .testTag("settings_save_address_name_button")
+                    ) {
+                        Text("Save", fontWeight = FontWeight.Bold)
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf("Sir", "Arafat").forEach { preset ->
+                        val isActive = addressDraft.trim().equals(preset, ignoreCase = true)
+                        FilterChip(
+                            selected = isActive,
+                            onClick = {
+                                addressDraft = preset
+                                onSaveAddressName(preset)
+                            },
+                            label = { Text(if (isActive) "✓ $preset" else preset) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = JarvisGold.copy(alpha = 0.2f),
+                                selectedLabelColor = JarvisGold,
+                                containerColor = JarvisSurfaceElevated,
+                                labelColor = JarvisTextPrimary
+                            ),
+                            modifier = Modifier.testTag("settings_address_preset_$preset")
                         )
                     }
                 }

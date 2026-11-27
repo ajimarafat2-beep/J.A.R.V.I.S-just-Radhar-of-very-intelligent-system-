@@ -1,7 +1,11 @@
 package com.example.agent
 
 import android.app.Application
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
+import android.os.IBinder
 import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -32,6 +36,7 @@ import com.example.settings.JarvisSettingsRepository
 import com.example.smarthome.JarvisSmartHomeManager
 import com.example.smarthome.SmartDeviceType
 import com.example.voice.JarvisVoiceEngine
+import com.example.voice.JarvisVoiceService
 import com.example.voice.VoicePhase
 import com.example.wifi.JarvisWifiManager
 import com.google.firebase.ai.type.AspectRatio
@@ -69,8 +74,96 @@ class JarvisAgentViewModel(
 
     private lateinit var taskManager: OfflineTaskManager
     private lateinit var offlineEngine: OfflineActionEngine
-    private var voiceEngine: JarvisVoiceEngine? = null
+    // The voice engine lives in JarvisVoiceService (foreground service) so the
+    // wake word keeps working in the background / while locked. This ViewModel
+    // binds to the service and drives the same engine instance.
+    private var voiceService: JarvisVoiceService? = null
+    private val voiceEngine: JarvisVoiceEngine?
+        get() = voiceService?.getEngine()
+    private var voiceStreamsCollected = false
+    private var pendingWakeStart = false
+    private var voiceServiceBound = false
     private var sendJob: Job? = null
+
+    private val voiceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            val service = (binder as? JarvisVoiceService.VoiceBinder)?.getService() ?: return
+            voiceService = service
+            voiceServiceBound = true
+            service.setCallbacks(object : JarvisVoiceService.VoiceCallbacks {
+                override fun onTranscriptReady(text: String) {
+                    sendMessage(text)
+                }
+
+                override fun onWakeTriggered() {
+                    _uiState.update {
+                        it.copy(
+                            edgeBorderMode = true,
+                            voiceNotice = "Wake word detected — Edge Core active, listening clearly, Sir."
+                        )
+                    }
+                }
+
+                override fun onVoiceError(err: String) {
+                    _uiState.update { it.copy(voiceNotice = err) }
+                }
+            })
+            voiceEngine?.updateSettings(settingsRepo.settings.value)
+            collectVoiceStreams()
+            if (settingsRepo.settings.value.wakeWordEnabled &&
+                PermissionHelper.hasMicrophonePermission(appContext) &&
+                voiceEngine?.phase?.value == VoicePhase.IDLE
+            ) {
+                service.startWakeListener()
+            }
+            if (pendingWakeStart) {
+                pendingWakeStart = false
+                startOrInterruptLiveVoice()
+            }
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            voiceService = null
+            voiceServiceBound = false
+        }
+    }
+
+    private fun collectVoiceStreams() {
+        val engine = voiceEngine ?: return
+        if (voiceStreamsCollected) return
+        voiceStreamsCollected = true
+        viewModelScope.launch {
+            engine.phase.collect { p ->
+                _uiState.update { it.copy(voicePhase = p) }
+                // Edge light follows speaking/working: when the voice goes idle
+                // the light fades back to invisible.
+                if (p == VoicePhase.IDLE) {
+                    _uiState.update { it.copy(edgeBorderMode = false) }
+                }
+            }
+        }
+        viewModelScope.launch { engine.partialText.collect { t -> _uiState.update { it.copy(liveTranscript = t) } } }
+        viewModelScope.launch { engine.voiceRmsLevel.collect { r -> _liveVoiceRmsLevel.value = r } }
+    }
+
+    private fun bindVoiceService() {
+        if (voiceServiceBound) return
+        val intent = Intent(appContext, JarvisVoiceService::class.java)
+        runCatching {
+            appContext.bindService(intent, voiceConnection, Context.BIND_AUTO_CREATE)
+        }
+    }
+
+    /** Called when the app was opened by the wake word while nothing was bound. */
+    fun onWakeWordTriggeredFromBackground() {
+        pendingWakeStart = true
+        if (voiceServiceBound) {
+            pendingWakeStart = false
+            startOrInterruptLiveVoice()
+        } else {
+            bindVoiceService()
+        }
+    }
 
     private val _liveVoiceRmsLevel = MutableStateFlow(0f)
     val liveVoiceRmsLevel: StateFlow<Float> = _liveVoiceRmsLevel.asStateFlow()
@@ -125,25 +218,11 @@ class JarvisAgentViewModel(
             voiceEngineProvider = { voiceEngine },
             phoneControlManager = phoneControlManager
         )
-        voiceEngine = JarvisVoiceEngine(
-            context = appContext,
-            onTranscriptReady = { transcript -> sendMessage(transcript) },
-            onWakeTriggered = {
-                _uiState.update {
-                    it.copy(
-                        edgeBorderMode = true,
-                        voiceNotice = "Wake word detected — Edge Core active, listening clearly, Sir."
-                    )
-                }
-            },
-            onVoiceError = { err ->
-                _uiState.update { it.copy(voiceNotice = err) }
-            }
-        )
+        // The voice engine now lives in JarvisVoiceService (foreground service).
+        // Bind here; onServiceConnected wires the callbacks and starts the
+        // wake-word listener when it is enabled.
+        bindVoiceService()
         observeAllStreams()
-        if (settingsRepo.settings.value.wakeWordEnabled && PermissionHelper.hasMicrophonePermission(appContext)) {
-            voiceEngine?.startWakeWordListener()
-        }
         viewModelScope.launch(Dispatchers.IO) {
             val apps = connector.listInstalledApps()
             val websites = connector.getConnectedWebsites()
@@ -209,11 +288,8 @@ class JarvisAgentViewModel(
                 _uiState.update { it.copy(settings = s) }
             }
         }
-        voiceEngine?.let { engine ->
-            viewModelScope.launch { engine.phase.collect { p -> _uiState.update { it.copy(voicePhase = p) } } }
-            viewModelScope.launch { engine.partialText.collect { t -> _uiState.update { it.copy(liveTranscript = t) } } }
-            viewModelScope.launch { engine.voiceRmsLevel.collect { r -> _liveVoiceRmsLevel.value = r } }
-        }
+        // Voice phase / transcript / RMS streams are collected in
+        // collectVoiceStreams() once the voice service is bound.
         viewModelScope.launch { taskManager.isOnline.collect { o -> _uiState.update { it.copy(isOnline = o) } } }
         viewModelScope.launch { taskManager.tasks.collect { t -> _uiState.update { it.copy(tasks = t) } } }
         viewModelScope.launch { taskManager.metrics.collect { m -> _uiState.update { it.copy(taskMetrics = m) } } }
@@ -383,11 +459,23 @@ class JarvisAgentViewModel(
 
     fun toggleWakeWord(enabled: Boolean) {
         settingsRepo.setWakeWordEnabled(enabled)
-        if (enabled) voiceEngine?.startWakeWordListener() else voiceEngine?.stopWakeWordListener()
+        if (enabled) {
+            if (PermissionHelper.hasMicrophonePermission(appContext)) {
+                JarvisVoiceService.startWakeService(appContext)
+            }
+            bindVoiceService()
+        } else {
+            voiceEngine?.stopWakeWordListener()
+            // Keep the service alive only while a live voice session is running.
+            if (voiceEngine?.isLiveVoiceActive() != true) {
+                JarvisVoiceService.stopVoiceService(appContext)
+            }
+        }
     }
 
     fun setLanguage(language: AppLanguage) = settingsRepo.setLanguage(language)
     fun setWakeWord(word: String) = settingsRepo.setWakeWord(word)
+    fun setAddressName(name: String) = settingsRepo.setAddressName(name)
     fun setOpenAiApiKey(key: String) = settingsRepo.setOpenAiApiKey(key)
     fun setAnthropicApiKey(key: String) = settingsRepo.setAnthropicApiKey(key)
     fun setLiveVoiceChatEnabled(enabled: Boolean) = settingsRepo.setLiveVoiceChatEnabled(enabled)
@@ -1245,7 +1333,13 @@ class JarvisAgentViewModel(
     fun dismissVoiceNotice() { _uiState.update { it.copy(voiceNotice = null) } }
 
     override fun onCleared() {
-        voiceEngine?.release()
+        // The engine belongs to the foreground service now — just unbind.
+        // The service keeps listening in the background when wake word is on.
+        runCatching {
+            if (voiceServiceBound) appContext.unbindService(voiceConnection)
+        }
+        voiceServiceBound = false
+        voiceService = null
         smartHomeManager.release()
         taskManager.release()
         bluetoothManager.release()

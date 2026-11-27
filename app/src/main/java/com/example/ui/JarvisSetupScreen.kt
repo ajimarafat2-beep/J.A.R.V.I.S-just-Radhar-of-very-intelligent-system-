@@ -435,6 +435,55 @@ fun JarvisSetupScreen(
             }
 
             item {
+                var addressChoice by remember { mutableStateOf("Sir") }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                ) {
+                    Text(
+                        text = "What should Jarvis call you?",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = JarvisTextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Jarvis will address you this way — in the wake greeting and in conversation. You can change it anytime in Settings.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = JarvisTextMuted
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        listOf("Sir", "Arafat").forEach { choice ->
+                            val selected = addressChoice == choice
+                            OutlinedButton(
+                                onClick = {
+                                    addressChoice = choice
+                                    context.getSharedPreferences("jarvis_ai_settings", Context.MODE_PRIVATE)
+                                        .edit().putString("address_name", choice).apply()
+                                },
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (selected) JarvisGold else JarvisBorder
+                                ),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (selected) JarvisGold.copy(alpha = 0.15f) else Color.Transparent,
+                                    contentColor = if (selected) JarvisGold else JarvisTextPrimary
+                                ),
+                                modifier = Modifier.testTag("setup_address_$choice")
+                            ) {
+                                Text(
+                                    if (selected) "✓ $choice" else choice,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
                 Spacer(modifier = Modifier.height(6.dp))
                 Button(
                     onClick = onContinueToSignIn,

@@ -107,6 +107,13 @@ class OfflineActionEngine(
             )
         }
 
+        // 1a. Conversational guard — greetings and information questions are CHAT,
+        // never device actions. Without this, fuzzy offline matchers (the on-device
+        // NLP intent, the bare app-name fallback) fired on plain chat: "hi" opened
+        // an app, a news question opened Google. Only explicit commands reach the
+        // action branches below; everything else returns null so the AI answers it.
+        if (isConversationalOnly(prompt, lower)) return null
+
         // 1b. Defensive Cybersecurity Expert Offline & Live Tools
         if (Regex("(cyber audit|attack surface|network security|vpn check|dns check|hardening|সাইবার অডিট|নেটওয়ার্ক সুরক্ষা|নেটওয়ার্ক সুরক্ষা)")
                 .containsMatchIn(lower)
@@ -522,10 +529,11 @@ class OfflineActionEngine(
             )
         }
 
-        // 10. Open installed apps or system panels (Offline)
-        if (Regex("(open |launch |start |connect |খোলো|খুলো|চালু করো|ওপেন)").containsMatchIn(lower) ||
-            nlp.intent == JarvisIntent.OPEN_APP
-        ) {
+        // 10. Open installed apps or system panels (Offline).
+        // Only an explicit open/launch verb may open an app. The on-device NLP
+        // intent alone must never trigger it — the local model misfires on plain
+        // chat (e.g. "hi" classified as OPEN_APP) and opened a random app.
+        if (Regex("(open |launch |start |connect |খোলো|খুলো|চালু করো|ওপেন)").containsMatchIn(lower)) {
             val target = extractAppTarget(prompt).ifEmpty { nlp.slots.appTarget.orEmpty() }
             if (target.isNotEmpty()) {
                 tryLaunchTarget(target, replyLang)?.let {
@@ -739,13 +747,53 @@ class OfflineActionEngine(
             )
         }
 
-        // 16. Direct app-name match fallback (Offline)
-        tryLaunchTarget(lower, replyLang)?.let {
-            taskManager.recordCompletedOfflineTask(prompt, lower, it.responseText, nlp.intent.name, nlp.confidence)
-            return it
+        // 16. Direct app-name match fallback (Offline) — bare app name only
+        // ("youtube", "ফেসবুক"). A whole chat message must never be thrown at
+        // the fuzzy app matcher: only a short message that strictly matches an
+        // installed app name (exact / starts-with) may open anything here.
+        val bareWords = lower.split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (lower.length in 3..30 && bareWords.size <= 2 &&
+            appConnector.resolveAppStrict(lower) != null
+        ) {
+            tryLaunchTarget(lower, replyLang)?.let {
+                taskManager.recordCompletedOfflineTask(prompt, lower, it.responseText, nlp.intent.name, nlp.confidence)
+                return it
+            }
         }
 
         return null
+    }
+
+    /**
+     * True when the message is plain conversation — a greeting, small talk, or an
+     * information question with no explicit command verb. Such messages must be
+     * answered by the AI, never turned into a device action. (Mirror of the same
+     * greeting guard in JarvisAiOrchestrator.looksLikeDeviceOrAgentGoal — keep both
+     * in sync.) Note: "hi jarvis" is NOT conversational here — it must still reach
+     * the wake-up branch below, which answers with the systems-nominal greeting.
+     */
+    private fun isConversationalOnly(prompt: String, lower: String): Boolean {
+        val text = lower.trim().trimEnd('.', '!', '?', '।', ',')
+        // 1. Bare greetings / small talk (exact message, any language).
+        val greetings = setOf(
+            "hi", "hii", "hiii", "hello", "hey", "hiya", "yo",
+            "good morning", "good afternoon", "good evening", "good night",
+            "salam", "সালাম", "আসসালামু আলাইকুম", "হাই", "হ্যালো", "হেলো",
+            "নমস্কার", "শুভ সকাল", "শুভ বিকাল", "শুভ সন্ধ্যা", "শুভ রাত্রি",
+            "কেমন আছো", "how are you", "what's up", "whats up",
+            "thank you", "thanks", "ধন্যবাদ"
+        )
+        if (text in greetings) return true
+        // 2. Information requests with no explicit command verb: news, weather,
+        // questions, or a lone short word that is not an installed app name.
+        val hasCommandVerb = Regex(
+            "(open|launch|start|turn\\s+on|turn\\s+off|set\\s+|scan|search|google|find|play|call|send|delete|remove|uninstall|খোলো|খুলো|চালু|বন্ধ\\s+করো|সার্চ|খুঁজে|বাজাও|কল\\s+করো|স্ক্যান|বানাও|তৈরি\\s+করো|লিখো|পাঠাও|ডিলিট|মুছে|চেক)"
+        ).containsMatchIn(text)
+        if (!hasCommandVerb) {
+            if (Regex("\\b(what|who|when|where|why|how|which)\\b|news|খবর|নিউজ|weather|আবহাওয়া|আবহাওয়া|সর্বশেষ").containsMatchIn(text)) return true
+            if (!text.contains(' ') && appConnector.resolveAppStrict(text) == null) return true
+        }
+        return false
     }
 
     private fun resolveReplyLanguage(prompt: String, configured: AppLanguage): AppLanguage {

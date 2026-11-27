@@ -12,6 +12,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -35,10 +38,13 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.AddComment
 import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Queue
 import androidx.compose.material.icons.filled.Settings
@@ -100,6 +106,7 @@ import com.example.auth.authStateFlow
 import com.example.auth.signOut
 import com.example.data.JarvisCreationsRepository
 import com.example.permissions.PermissionHelper
+import com.example.ui.JarvisAgentBoardScreen
 import com.example.ui.JarvisAuthScreen
 import com.example.ui.JarvisBluetoothScreen
 import com.example.ui.JarvisChatScreen
@@ -122,6 +129,8 @@ import com.example.ui.theme.JarvisGold
 import com.example.ui.theme.JarvisNavy
 import com.example.ui.theme.JarvisSurface
 import com.example.ui.theme.JarvisSurfaceElevated
+import com.example.voice.JarvisVoiceService
+import com.example.voice.VoicePhase
 import com.example.ui.theme.JarvisTextMuted
 import com.example.ui.theme.JarvisTextPrimary
 import com.example.voice.VoicePhase
@@ -133,6 +142,7 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private var assistTriggerToken by mutableStateOf(0)
+    private var wakeTriggerToken by mutableStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -141,9 +151,15 @@ class MainActivity : ComponentActivity() {
         if (intent?.action == Intent.ACTION_ASSIST) {
             assistTriggerToken++
         }
+        if (intent?.getBooleanExtra(JarvisVoiceService.EXTRA_WAKE_TRIGGERED, false) == true) {
+            wakeTriggerToken++
+        }
         setContent {
             JarvisTheme {
-                JarvisAppRoot(assistTriggerToken = assistTriggerToken)
+                JarvisAppRoot(
+                    assistTriggerToken = assistTriggerToken,
+                    wakeTriggerToken = wakeTriggerToken
+                )
             }
         }
     }
@@ -154,11 +170,14 @@ class MainActivity : ComponentActivity() {
         if (intent.action == Intent.ACTION_ASSIST) {
             assistTriggerToken++
         }
+        if (intent.getBooleanExtra(JarvisVoiceService.EXTRA_WAKE_TRIGGERED, false)) {
+            wakeTriggerToken++
+        }
     }
 }
 
 @Composable
-private fun JarvisAppRoot(assistTriggerToken: Int) {
+private fun JarvisAppRoot(assistTriggerToken: Int, wakeTriggerToken: Int = 0) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val credentialManager = remember(context) { CredentialManager.create(context) }
@@ -224,6 +243,7 @@ private fun JarvisAppRoot(assistTriggerToken: Int) {
                 )
                 JarvisWorkspaceApp(
                     assistTriggerToken = assistTriggerToken,
+                    wakeTriggerToken = wakeTriggerToken,
                     currentUser = signedInUser,
                     agentViewModel = agentViewModel,
                     onReopenSetup = { setupCompleted = false },
@@ -260,6 +280,7 @@ private fun JarvisAppRoot(assistTriggerToken: Int) {
                 )
                 JarvisWorkspaceApp(
                     assistTriggerToken = assistTriggerToken,
+                    wakeTriggerToken = wakeTriggerToken,
                     currentUser = null,
                     isGuest = true,
                     agentViewModel = agentViewModel,
@@ -288,6 +309,7 @@ private fun JarvisAppRoot(assistTriggerToken: Int) {
 @Composable
 private fun JarvisWorkspaceApp(
     assistTriggerToken: Int = 0,
+    wakeTriggerToken: Int = 0,
     currentUser: FirebaseUser?,
     isGuest: Boolean = false,
     agentViewModel: JarvisAgentViewModel,
@@ -297,6 +319,11 @@ private fun JarvisWorkspaceApp(
     LaunchedEffect(assistTriggerToken) {
         if (assistTriggerToken > 0) {
             agentViewModel.onSystemAssistInvoked()
+        }
+    }
+    LaunchedEffect(wakeTriggerToken) {
+        if (wakeTriggerToken > 0) {
+            agentViewModel.onWakeWordTriggeredFromBackground()
         }
     }
     val agentState by agentViewModel.uiState.collectAsStateWithLifecycle()
@@ -693,6 +720,14 @@ private fun JarvisWorkspaceApp(
                     .imePadding(),
                 containerColor = JarvisNavy,
                 contentWindowInsets = WindowInsets.safeDrawing,
+                bottomBar = {
+                    JarvisBottomNavPill(
+                        currentRoute = currentRoute,
+                        isLive = agentState.voicePhase != VoicePhase.IDLE,
+                        onNavigate = { currentRoute = it },
+                        onMic = agentViewModel::startOrInterruptLiveVoice
+                    )
+                },
                 topBar = {
                     CenterAlignedTopAppBar(
                         colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -795,6 +830,13 @@ private fun JarvisWorkspaceApp(
                     },
                     onDismissVoiceNotice = agentViewModel::dismissVoiceNotice,
                     onStopGeneration = agentViewModel::stopGeneration,
+                    modifier = screenModifier,
+                    voiceRmsProvider = { liveVoiceRmsState.value }
+                )
+
+                AgentRoute.AGENT_BOARD -> JarvisAgentBoardScreen(
+                    uiState = agentState,
+                    onToggleLiveVoice = agentViewModel::startOrInterruptLiveVoice,
                     modifier = screenModifier,
                     voiceRmsProvider = { liveVoiceRmsState.value }
                 )
@@ -958,6 +1000,7 @@ private fun JarvisWorkspaceApp(
                     voiceDiagnostic = agentState.voiceDiagnostic,
                     onSelectLanguage = agentViewModel::setLanguage,
                     onSaveWakeWord = agentViewModel::setWakeWord,
+                    onSaveAddressName = agentViewModel::setAddressName,
                     onSaveOpenAiApiKey = agentViewModel::setOpenAiApiKey,
                     onSaveAnthropicApiKey = agentViewModel::setAnthropicApiKey,
                     onToggleWakeWord = agentViewModel::toggleWakeWord,
@@ -984,6 +1027,93 @@ private fun JarvisWorkspaceApp(
 }
 
 @Composable
+/**
+ * Bottom navigation pill (NUSU-style): Home (agent board), Chat, big center
+ * mic for live voice, Settings, Updates (task queue).
+ */
+@Composable
+private fun JarvisBottomNavPill(
+    currentRoute: AgentRoute,
+    isLive: Boolean,
+    onNavigate: (AgentRoute) -> Unit,
+    onMic: () -> Unit
+) {
+    Surface(
+        color = JarvisSurface,
+        border = BorderStroke(1.dp, JarvisBorder),
+        shape = RoundedCornerShape(28.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 10.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = { onNavigate(AgentRoute.AGENT_BOARD) },
+                modifier = Modifier.size(44.dp).testTag("bottom_nav_home")
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Home,
+                    contentDescription = "Home",
+                    tint = if (currentRoute == AgentRoute.AGENT_BOARD) JarvisGold else JarvisTextMuted
+                )
+            }
+            IconButton(
+                onClick = { onNavigate(AgentRoute.CHAT) },
+                modifier = Modifier.size(44.dp).testTag("bottom_nav_chat")
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Chat,
+                    contentDescription = "Chat",
+                    tint = if (currentRoute == AgentRoute.CHAT) JarvisGold else JarvisTextMuted
+                )
+            }
+            Surface(
+                shape = CircleShape,
+                color = if (isLive) JarvisGold else JarvisCyan,
+                modifier = Modifier
+                    .size(56.dp)
+                    .testTag("bottom_nav_mic")
+                    .clickable { onMic() }
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Filled.Mic,
+                        contentDescription = "Talk to Jarvis",
+                        tint = JarvisNavy,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+            }
+            IconButton(
+                onClick = { onNavigate(AgentRoute.SETTINGS) },
+                modifier = Modifier.size(44.dp).testTag("bottom_nav_settings")
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Settings,
+                    contentDescription = "Settings",
+                    tint = if (currentRoute == AgentRoute.SETTINGS) JarvisGold else JarvisTextMuted
+                )
+            }
+            IconButton(
+                onClick = { onNavigate(AgentRoute.QUEUE) },
+                modifier = Modifier.size(44.dp).testTag("bottom_nav_updates")
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Notifications,
+                    contentDescription = "Updates",
+                    tint = if (currentRoute == AgentRoute.QUEUE) JarvisGold else JarvisTextMuted
+                )
+            }
+        }
+    }
+}
+
 private fun DrawerNavItem(
     label: String,
     icon: ImageVector,

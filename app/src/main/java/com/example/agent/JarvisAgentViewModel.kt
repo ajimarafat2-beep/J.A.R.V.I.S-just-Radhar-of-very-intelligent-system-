@@ -386,6 +386,8 @@ class JarvisAgentViewModel(
 
     fun setLanguage(language: AppLanguage) = settingsRepo.setLanguage(language)
     fun setWakeWord(word: String) = settingsRepo.setWakeWord(word)
+    fun setOpenAiApiKey(key: String) = settingsRepo.setOpenAiApiKey(key)
+    fun setAnthropicApiKey(key: String) = settingsRepo.setAnthropicApiKey(key)
     fun setLiveVoiceChatEnabled(enabled: Boolean) = settingsRepo.setLiveVoiceChatEnabled(enabled)
     fun setVoiceReplyEnabled(enabled: Boolean) {
         settingsRepo.setVoiceReplyEnabled(enabled)

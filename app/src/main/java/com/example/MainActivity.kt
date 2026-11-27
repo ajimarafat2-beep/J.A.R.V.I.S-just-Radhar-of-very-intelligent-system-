@@ -975,6 +975,8 @@ private fun JarvisWorkspaceApp(
                     voiceDiagnostic = agentState.voiceDiagnostic,
                     onSelectLanguage = agentViewModel::setLanguage,
                     onSaveWakeWord = agentViewModel::setWakeWord,
+                    onSaveOpenAiApiKey = agentViewModel::setOpenAiApiKey,
+                    onSaveAnthropicApiKey = agentViewModel::setAnthropicApiKey,
                     onToggleWakeWord = agentViewModel::toggleWakeWord,
                     onRequestMicPermission = {
                         pendingVoiceAfterMic = false

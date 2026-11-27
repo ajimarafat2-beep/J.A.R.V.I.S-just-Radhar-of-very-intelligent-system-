@@ -547,7 +547,9 @@ private fun JarvisReplicaWelcomeCanvas(
                 ) {
                     JarvisHologramOrb(
                         size = 86.dp,
-                        activeGold = true,
+                        activeGold = uiState.isProcessing ||
+                            uiState.voicePhase == VoicePhase.COMMAND_LISTENING ||
+                            uiState.voicePhase == VoicePhase.SPEAKING,
                         voiceRmsProvider = {
                             if (uiState.voicePhase == VoicePhase.COMMAND_LISTENING) voiceRmsProvider() else 0f
                         }
@@ -585,119 +587,41 @@ private fun JarvisReplicaWelcomeCanvas(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                HudStatusChip(
-                    text = if (uiState.isOnline && !uiState.settings.offlineIsolationMode) {
-                        "J.A.R.V.I.S Core Online"
-                    } else {
-                        "J.A.R.V.I.S Offline Core"
-                    },
-                    color = if (uiState.isOnline) JarvisEmerald else JarvisCyan
+                WelcomeSuggestionChip(
+                    text = "Latest news today",
+                    onClick = { onPromptClick("What is the latest news today?") }
                 )
-                HudStatusChip(
-                    text = if (uiState.edgeBorderMode) "Edge Border: ON" else "Edge Border: Auto",
-                    color = if (uiState.edgeBorderMode) JarvisGold else JarvisTextMuted,
-                    onClick = onToggleEdgeBorder
-                )
-                HudStatusChip(
-                    text = "Wake \"${uiState.settings.wakeWord}\" ${if (uiState.settings.wakeWordEnabled) "ON" else "OFF"}",
-                    color = if (uiState.settings.wakeWordEnabled) JarvisEmerald else JarvisTextMuted,
-                    onClick = onToggleWakeWord
-                )
-                val threatCount = uiState.shieldState.report.highRiskApps.size
-                HudStatusChip(
-                    text = if (threatCount > 0) {
-                        "Threat Alert: $threatCount"
-                    } else {
-                        "Shield: ${uiState.shieldState.report.overallScore}%"
-                    },
-                    color = when {
-                        threatCount > 0 -> JarvisAlertRed
-                        uiState.shieldState.continuousProtectionEnabled -> JarvisEmerald
-                        else -> JarvisGold
-                    },
-                    onClick = { onNavigateRoute(AgentRoute.SECURITY) }
-                )
-                HudStatusChip(
-                    text = "Camera ${if (uiState.cameraPermissionGranted) "ON" else "OFF"}",
-                    color = if (uiState.cameraPermissionGranted) JarvisEmerald else JarvisGold,
-                    onClick = onGrantCameraAndMic
-                )
-                HudStatusChip(
-                    text = "Queue (${uiState.pendingTaskCount})",
-                    color = if (uiState.pendingTaskCount > 0) JarvisGold else JarvisTextMuted,
-                    onClick = { onNavigateRoute(AgentRoute.QUEUE) }
-                )
-            }
-        }
-
-        if (!uiState.cameraPermissionGranted || !uiState.micPermissionGranted) {
-            item {
-                Button(
-                    onClick = onGrantCameraAndMic,
-                    colors = ButtonDefaults.buttonColors(containerColor = JarvisGold, contentColor = JarvisNavy),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("welcome_grant_camera_mic_button")
-                ) {
-                    Text(
-                        text = "Grant Camera & Microphone Access",
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
-
-        if (!uiState.wirelessPermissionsGranted) {
-            item {
-                OutlinedButton(
-                    onClick = onGrantPermissions,
-                    border = BorderStroke(1.dp, JarvisCyan),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("welcome_grant_permissions_button")
-                ) {
-                    Text(
-                        text = stringResource(R.string.chat_grant_wireless),
-                        color = JarvisCyan,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
-
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                JarvisSuggestionRow(
-                    icon = Icons.Filled.Shield,
-                    title = "Run Agent Routine: Scan Phone for Threats & Check Telemetry",
+                WelcomeSuggestionChip(
+                    text = "Scan my phone",
                     onClick = { onPromptClick("Scan phone for virus and check battery") }
                 )
-                JarvisSuggestionRow(
-                    icon = Icons.Filled.PhoneAndroid,
-                    title = "Open Full Phone Control, Live Camera & System Gestures",
-                    onClick = { onNavigateRoute(AgentRoute.PHONE_CONTROL) }
-                )
-                JarvisSuggestionRow(
-                    icon = Icons.Filled.AutoAwesome,
-                    title = "Generate studio image, website or check live prices",
-                    onClick = { onNavigateRoute(AgentRoute.STUDIO) }
-                )
-                JarvisSuggestionRow(
-                    icon = Icons.Filled.AccountBalance,
-                    title = "Access Airbnb reservations & protected Bank portals",
-                    onClick = { onNavigateRoute(AgentRoute.CONNECTORS) }
-                )
-                JarvisSuggestionRow(
-                    icon = Icons.Filled.Home,
-                    title = "Control Google Home AC, Washing Machine, TV & Fridge",
-                    onClick = { onNavigateRoute(AgentRoute.SMART_HOME) }
+                WelcomeSuggestionChip(
+                    text = "Write a short poem",
+                    onClick = { onPromptClick("Write a short poem about the morning") }
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun WelcomeSuggestionChip(
+    text: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        color = JarvisSurface,
+        border = BorderStroke(1.dp, JarvisBorder),
+        shape = RoundedCornerShape(999.dp),
+        modifier = Modifier.testTag("welcome_suggestion_chip")
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelLarge,
+            color = JarvisTextPrimary,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+        )
     }
 }
 
@@ -799,7 +723,8 @@ private fun JarvisChatMessageItem(
             Box(modifier = Modifier.padding(top = 2.dp)) {
                 JarvisHologramOrb(
                     size = 26.dp,
-                    activeGold = true,
+                    activeGold = message.isStreaming,
+                    animate = message.isStreaming,
                     voiceRmsLevel = if (message.isStreaming) 0.45f else 0f
                 )
             }

@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -123,6 +124,7 @@ import com.example.ui.theme.JarvisSurface
 import com.example.ui.theme.JarvisSurfaceElevated
 import com.example.ui.theme.JarvisTextMuted
 import com.example.ui.theme.JarvisTextPrimary
+import com.example.voice.VoicePhase
 import com.example.ui.theme.JarvisTheme
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseUser
@@ -407,7 +409,7 @@ private fun JarvisWorkspaceApp(
 
                     NavigationDrawerItem(
                         label = { Text(stringResource(R.string.nav_chat), style = MaterialTheme.typography.titleMedium) },
-                        icon = { JarvisHologramOrb(size = 24.dp, activeGold = true) },
+                        icon = { JarvisHologramOrb(size = 24.dp, activeGold = true, animate = false) },
                         selected = currentRoute == AgentRoute.CHAT,
                         onClick = {
                             currentRoute = AgentRoute.CHAT
@@ -692,8 +694,8 @@ private fun JarvisWorkspaceApp(
                 containerColor = JarvisNavy,
                 contentWindowInsets = WindowInsets.safeDrawing,
                 topBar = {
-                    TopAppBar(
-                        colors = TopAppBarDefaults.topAppBarColors(
+                    CenterAlignedTopAppBar(
+                        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                             containerColor = JarvisNavy,
                             titleContentColor = JarvisTextPrimary
                         ),
@@ -712,64 +714,44 @@ private fun JarvisWorkspaceApp(
                             }
                         },
                         title = {
-                            Surface(
-                                color = JarvisSurface,
-                                border = BorderStroke(1.dp, JarvisBorder),
-                                shape = RoundedCornerShape(999.dp),
-                                onClick = {
-                                    val nextIndex = (AgentRoute.entries.indexOf(currentRoute) + 1) % AgentRoute.entries.size
-                                    currentRoute = AgentRoute.entries[nextIndex]
-                                },
-                                modifier = Modifier.testTag("top_mode_pill")
+                            val isWorking = agentState.isProcessing ||
+                                agentState.voicePhase == VoicePhase.COMMAND_LISTENING ||
+                                agentState.voicePhase == VoicePhase.SPEAKING
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.testTag("top_jarvis_title")
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    JarvisHologramOrb(
-                                        size = 20.dp,
-                                        activeGold = true,
-                                        voiceRmsProvider = { liveVoiceRmsState.value }
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
+                                JarvisHologramOrb(
+                                    size = 28.dp,
+                                    activeGold = isWorking,
+                                    animate = isWorking,
+                                    voiceRmsProvider = { liveVoiceRmsState.value }
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
                                     Text(
-                                        text = when (currentRoute) {
-                                            AgentRoute.CHAT -> if (agentState.isOnline && !agentState.settings.offlineIsolationMode) "J.A.R.V.I.S • AI Agent" else "J.A.R.V.I.S • Agent Offline"
-                                            AgentRoute.STUDIO -> "J.A.R.V.I.S • Studio"
-                                            AgentRoute.PHONE_CONTROL -> "J.A.R.V.I.S • Phone Control"
-                                            AgentRoute.SMART_HOME -> "J.A.R.V.I.S • Google Home"
-                                            AgentRoute.QUEUE -> "J.A.R.V.I.S • Queue (${agentState.pendingTaskCount})"
-                                            AgentRoute.CONNECTORS -> "J.A.R.V.I.S • Airbnb & Bank"
-                                            AgentRoute.BLUETOOTH -> "J.A.R.V.I.S • Bluetooth"
-                                            AgentRoute.WIFI -> "J.A.R.V.I.S • Wi-Fi"
-                                            AgentRoute.SECURITY -> "J.A.R.V.I.S • 24/7 Threat Shield"
-                                            AgentRoute.SETTINGS -> "J.A.R.V.I.S • Settings"
-                                        },
-                                        style = MaterialTheme.typography.labelMedium,
+                                        text = "Jarvis",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
                                         color = JarvisTextPrimary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = when {
+                                            isWorking && agentState.isProcessing -> "Working…"
+                                            agentState.voicePhase == VoicePhase.COMMAND_LISTENING -> "Listening…"
+                                            agentState.voicePhase == VoicePhase.SPEAKING -> "Speaking…"
+                                            !agentState.isOnline || agentState.settings.offlineIsolationMode -> "Offline"
+                                            else -> "Your AI Agent"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = JarvisTextMuted,
+                                        maxLines = 1
                                     )
                                 }
                             }
                         },
                     actions = {
-                        IconButton(
-                            onClick = agentViewModel::toggleVoiceReply,
-                            modifier = Modifier
-                                .size(48.dp)
-                                .testTag("toggle_tts_button")
-                        ) {
-                            Icon(
-                                imageVector = if (agentState.settings.voiceReplyEnabled) {
-                                    Icons.AutoMirrored.Filled.VolumeUp
-                                } else {
-                                    Icons.AutoMirrored.Filled.VolumeOff
-                                },
-                                contentDescription = "Toggle voice reply",
-                                tint = if (agentState.settings.voiceReplyEnabled) JarvisCyan else JarvisTextMuted
-                            )
-                        }
                         IconButton(
                             onClick = {
                                 agentViewModel.startNewChat()

@@ -55,7 +55,8 @@ fun JarvisHologramOrb(
     activeGold: Boolean,
     modifier: Modifier = Modifier,
     voiceRmsLevel: Float = 0f,
-    voiceRmsProvider: (() -> Float)? = null
+    voiceRmsProvider: (() -> Float)? = null,
+    animate: Boolean = true
 ) {
     val primaryCore by animateColorAsState(
         targetValue = if (activeGold) Color(0xFFFFEA00) else Color(0xFFFFD600),
@@ -160,9 +161,9 @@ fun JarvisHologramOrb(
 
                 onDrawBehind {
                     val rms = (voiceRmsProvider?.invoke() ?: rmsSmooth).coerceIn(0f, 1f)
-                    val curSpinPrimary = spinPrimary.value
-                    val curSpinCounter = spinCounter.value
-                    val curBreathe = breathe.value
+                    val curSpinPrimary = if (animate) spinPrimary.value else 0f
+                    val curSpinCounter = if (animate) spinCounter.value else 0f
+                    val curBreathe = if (animate) breathe.value else 1f
                     val audioBoost = 1f + rms * 0.34f
                     val tendrilStroke = if (rms > 0.01f) {
                         Stroke(width = strokeBase * (0.85f + rms * 0.35f))

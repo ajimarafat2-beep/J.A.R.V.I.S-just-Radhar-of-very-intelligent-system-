@@ -368,7 +368,7 @@ class JarvisAiOrchestrator {
                 withTimeout(AI_TIMEOUT_MS) {
                     deepResearchModel.generateContentStream(enrichedPrompt).collect { chunk ->
                         val piece = chunk.text.orEmpty()
-                       chunk.candidates.firstOrNull()?.groundingMetadata?.groundingChunks?.forEach { gChunk ->  
+                        chunk.candidates.firstOrNull()?.groundingMetadata?.groundingChunks?.forEach { gChunk ->
                             val web = gChunk.web
                             val uri = web?.uri
                             if (!uri.isNullOrBlank()) {

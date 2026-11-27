@@ -22,7 +22,9 @@ data class JarvisSettings(
     val voiceReplyEnabled: Boolean = true,
     val speechRate: Float = 1.0f,
     val speechPitch: Float = 1.0f,
-    val offlineIsolationMode: Boolean = false
+    val offlineIsolationMode: Boolean = false,
+    val openAiApiKey: String = "",
+    val anthropicApiKey: String = ""
 )
 
 class JarvisSettingsRepository(context: Context) {
@@ -45,7 +47,9 @@ class JarvisSettingsRepository(context: Context) {
             voiceReplyEnabled = prefs.getBoolean(KEY_VOICE_REPLY, true),
             speechRate = prefs.getFloat(KEY_SPEECH_RATE, 1.0f).coerceIn(0.6f, 1.6f),
             speechPitch = prefs.getFloat(KEY_SPEECH_PITCH, 1.0f).coerceIn(0.7f, 1.4f),
-            offlineIsolationMode = prefs.getBoolean(KEY_OFFLINE_ISOLATION, false)
+            offlineIsolationMode = prefs.getBoolean(KEY_OFFLINE_ISOLATION, false),
+            openAiApiKey = prefs.getString(KEY_OPENAI_API_KEY, "") ?: "",
+            anthropicApiKey = prefs.getString(KEY_ANTHROPIC_API_KEY, "") ?: ""
         )
     }
 
@@ -91,6 +95,17 @@ class JarvisSettingsRepository(context: Context) {
         prefs.edit().putBoolean(KEY_OFFLINE_ISOLATION, enabled).apply()
         _settings.update { it.copy(offlineIsolationMode = enabled) }
     }
+    fun setOpenAiApiKey(key: String) {
+        val clean = key.trim()
+        prefs.edit().putString(KEY_OPENAI_API_KEY, clean).apply()
+        _settings.update { it.copy(openAiApiKey = clean) }
+    }
+
+    fun setAnthropicApiKey(key: String) {
+        val clean = key.trim()
+        prefs.edit().putString(KEY_ANTHROPIC_API_KEY, clean).apply()
+        _settings.update { it.copy(anthropicApiKey = clean) }
+    }
 
     fun resetToDefaults() {
         prefs.edit().clear().apply()
@@ -107,6 +122,8 @@ class JarvisSettingsRepository(context: Context) {
         private const val KEY_SPEECH_RATE = "speech_rate"
         private const val KEY_SPEECH_PITCH = "speech_pitch"
         private const val KEY_OFFLINE_ISOLATION = "offline_isolation"
+        private const val KEY_OPENAI_API_KEY = "openai_api_key"
+        private const val KEY_ANTHROPIC_API_KEY = "anthropic_api_key"
 
         private val jarvisPhoneticVariants = listOf(
             "jarvis", "jarves", "jarvish", "jervis", "charvis", "charves",

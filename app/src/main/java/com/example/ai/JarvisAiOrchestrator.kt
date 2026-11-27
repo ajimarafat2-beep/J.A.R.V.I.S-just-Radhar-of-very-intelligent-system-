@@ -417,7 +417,12 @@ class JarvisAiOrchestrator {
             emit(StreamChatEvent.Error("AI quota/rate limit exceeded: ${e.localizedMessage ?: "Try again later."}", route))
         } catch (e: Exception) {
             Log.e(TAG, "Gemini streaming failed", e)
-            emit(StreamChatEvent.Error(e.localizedMessage ?: "AI request failed. Check internet & App Check.", route))
+            val friendlyMessage = if (e is IllegalStateException && e.message?.contains("FirebaseApp is not initialized") == true) {
+                "Jarvis AI is unavailable right now — sign in with Google to enable chat."
+            } else {
+                e.localizedMessage ?: "AI request failed. Check internet & App Check."
+            }
+            emit(StreamChatEvent.Error(friendlyMessage, route))
         }
     }
 

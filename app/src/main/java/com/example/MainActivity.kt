@@ -166,6 +166,9 @@ private fun JarvisAppRoot(assistTriggerToken: Int) {
     var setupCompleted by rememberSaveable {
         mutableStateOf(onboardingPrefs.getBoolean("setup_done", false))
     }
+    var guestMode by rememberSaveable {
+        mutableStateOf(onboardingPrefs.getBoolean("guest_mode", false))
+    }
     // Firebase may be unconfigured (no google-services.json yet): Firebase.auth
     // throws when no default FirebaseApp exists. Treat that as signed out so
     // the app opens instead of crashing at launch.
@@ -199,13 +202,7 @@ private fun JarvisAppRoot(assistTriggerToken: Int) {
                 }
             )
         }
-        currentUser == null -> {
-            JarvisAuthScreen(
-                onAuthSuccess = { /* authStateFlow emits signed-in user automatically */ },
-                onBackToSetup = { setupCompleted = false }
-            )
-        }
-        else -> {
+        currentUser != null -> {
             val signedInUser = currentUser!!
             key(signedInUser.uid) {
                 val app = context.applicationContext as Application
@@ -233,11 +230,54 @@ private fun JarvisAppRoot(assistTriggerToken: Int) {
                             credentialManager = credentialManager,
                             scope = scope,
                             onBeforeSignOut = {},
-                            onSignOutComplete = {}
+                            onSignOutComplete = {
+                                onboardingPrefs.edit().putBoolean("guest_mode", false).apply()
+                                guestMode = false
+                            }
                         )
                     }
                 )
             }
+        }
+        guestMode -> {
+            key("guest") {
+                val app = context.applicationContext as Application
+                val creationsRepository = remember("guest") {
+                    JarvisCreationsRepository(app)
+                }
+                val agentViewModel: JarvisAgentViewModel = viewModel(
+                    key = "guest",
+                    factory = JarvisAgentViewModel.provideFactory(
+                        application = app,
+                        currentUserId = "guest",
+                        creationsRepository = creationsRepository,
+                        userDisplayName = "Guest",
+                        userEmail = null,
+                        userPhotoUrl = null
+                    )
+                )
+                JarvisWorkspaceApp(
+                    assistTriggerToken = assistTriggerToken,
+                    currentUser = null,
+                    isGuest = true,
+                    agentViewModel = agentViewModel,
+                    onReopenSetup = { setupCompleted = false },
+                    onSignOut = {
+                        onboardingPrefs.edit().putBoolean("guest_mode", false).apply()
+                        guestMode = false
+                    }
+                )
+            }
+        }
+        else -> {
+            JarvisAuthScreen(
+                onAuthSuccess = { /* authStateFlow emits signed-in user automatically */ },
+                onBackToSetup = { setupCompleted = false },
+                onContinueAsGuest = {
+                    onboardingPrefs.edit().putBoolean("guest_mode", true).apply()
+                    guestMode = true
+                }
+            )
         }
     }
 }
@@ -246,7 +286,8 @@ private fun JarvisAppRoot(assistTriggerToken: Int) {
 @Composable
 private fun JarvisWorkspaceApp(
     assistTriggerToken: Int = 0,
-    currentUser: FirebaseUser,
+    currentUser: FirebaseUser?,
+    isGuest: Boolean = false,
     agentViewModel: JarvisAgentViewModel,
     onReopenSetup: () -> Unit,
     onSignOut: () -> Unit
@@ -579,11 +620,11 @@ private fun JarvisWorkspaceApp(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = currentUser.displayName?.takeIf { it.isNotBlank() } ?: "Google Account",
+                                        text = currentUser?.displayName?.takeIf { it.isNotBlank() } ?: if (isGuest) "Guest" else "Google Account",
                                         style = MaterialTheme.typography.labelMedium,
                                         color = JarvisTextPrimary
                                     )
-                                    currentUser.email?.let { mail ->
+                                    currentUser?.email?.let { mail ->
                                         Text(
                                             text = mail,
                                             style = MaterialTheme.typography.labelSmall,

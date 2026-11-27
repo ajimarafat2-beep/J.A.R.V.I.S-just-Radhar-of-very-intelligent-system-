@@ -20,17 +20,25 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 
 class JarvisCreationsRepository(
-    private val db: FirebaseFirestore,
-    private val auth: FirebaseAuth = Firebase.auth
+    private val db: FirebaseFirestore?,
+    private val auth: FirebaseAuth? = runCatching { Firebase.auth }.getOrNull()
 ) {
     constructor(context: Context) : this(
-        FirebaseFirestore.getInstance(
-            context.applicationContext.getString(R.string.firestore_database_id)
-        )
+        runCatching {
+            FirebaseFirestore.getInstance(
+                context.applicationContext.getString(R.string.firestore_database_id)
+            )
+        }.getOrNull()
     )
 
+    // Firebase may be unconfigured (no google-services.json yet): the Firestore
+    // instance is null in that case, and every cloud call below fails cleanly
+    // instead of crashing. Local (Room) data still works.
+    private fun requireDb(): FirebaseFirestore =
+        db ?: throw IllegalStateException("Firebase is not configured on this device.")
+
     private fun requireUserId(): String {
-        return auth.currentUser?.uid
+        return auth?.currentUser?.uid
             ?: throw IllegalStateException("User must be signed in with Google before accessing Firestore.")
     }
 
@@ -45,7 +53,7 @@ class JarvisCreationsRepository(
             val uid = requireUserId()
             val safeName = displayName.trim().ifBlank { "Sir" }.take(100)
             val safeLang = preferredLanguage.trim().ifBlank { "AUTO" }.take(24)
-            val docRef = db.collection("users").document(uid)
+            val docRef = requireDb().collection("users").document(uid)
             docPath = docRef.path
 
             val snapshot = docRef.get().await()
@@ -80,14 +88,14 @@ class JarvisCreationsRepository(
     }
 
     fun observeCreations(userId: String): Flow<List<StudioCreation>> = flow {
-        val uid = auth.currentUser?.uid
+        val uid = auth?.currentUser?.uid
         if (uid.isNullOrBlank() || uid != userId) {
             emit(emptyList())
             return@flow
         }
         val path = "users/$uid/creations"
         emitAll(
-            db.collection("users").document(uid).collection("creations")
+            requireDb().collection("users").document(uid).collection("creations")
                 .orderBy("createdAt", Query.Direction.DESCENDING)
                 .limit(40)
                 .snapshots()
@@ -103,7 +111,7 @@ class JarvisCreationsRepository(
                         .firstOrNull()
                     if (firestoreError == null && error is CancellationException) throw error
                     val exceptionToLog = firestoreError ?: (error as? Exception)
-                    if (exceptionToLog != null && auth.currentUser?.uid == uid) {
+                    if (exceptionToLog != null && auth?.currentUser?.uid == uid) {
                         handleFirestoreError(exceptionToLog, OperationType.LIST, path)
                     }
                     throw error
@@ -121,7 +129,7 @@ class JarvisCreationsRepository(
         durationSeconds: Int = 0,
         localFilePath: String? = null
     ): Result<String> {
-        var docPath = "users/${auth.currentUser?.uid ?: "unauthenticated"}/creations"
+        var docPath = "users/${auth?.currentUser?.uid ?: "unauthenticated"}/creations"
         return try {
             val uid = requireUserId()
             val safePrompt = prompt.trim().ifBlank { "Untitled Prompt" }.take(1000)
@@ -129,7 +137,7 @@ class JarvisCreationsRepository(
             val safeModel = modelUsed.trim().ifBlank { "gemini-3.8-flash" }.take(80)
             val safeDuration = durationSeconds.coerceIn(0, 600)
 
-            val docRef = db.collection("users").document(uid).collection("creations").document()
+            val docRef = requireDb().collection("users").document(uid).collection("creations").document()
             docPath = docRef.path
 
             val payload = mutableMapOf<String, Any>(
@@ -157,11 +165,11 @@ class JarvisCreationsRepository(
     }
 
     suspend fun deleteCreation(creationId: String): Result<Unit> {
-        var docPath = "users/${auth.currentUser?.uid ?: "unauthenticated"}/creations/$creationId"
+        var docPath = "users/${auth?.currentUser?.uid ?: "unauthenticated"}/creations/$creationId"
         return try {
             val uid = requireUserId()
             require(creationId.isNotBlank()) { "Creation ID must not be blank." }
-            val docRef = db.collection("users").document(uid).collection("creations").document(creationId)
+            val docRef = requireDb().collection("users").document(uid).collection("creations").document(creationId)
             docPath = docRef.path
             docRef.delete().await()
             Result.success(Unit)

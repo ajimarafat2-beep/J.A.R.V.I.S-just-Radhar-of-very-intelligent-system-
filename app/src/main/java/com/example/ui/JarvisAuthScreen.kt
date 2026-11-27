@@ -78,6 +78,7 @@ import com.example.ui.theme.JarvisTextPrimary
 fun JarvisAuthScreen(
     onAuthSuccess: () -> Unit,
     onBackToSetup: () -> Unit,
+    onContinueAsGuest: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -262,6 +263,22 @@ fun JarvisAuthScreen(
                             )
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    TextButton(
+                        onClick = onContinueAsGuest,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("continue_as_guest_button")
+                    ) {
+                        Text("Continue as Guest", color = JarvisCyan, fontWeight = FontWeight.Bold)
+                    }
+                    Text(
+                        text = "Guest mode opens the app without sign-in. AI chat needs Google sign-in.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = JarvisTextMuted,
+                        textAlign = TextAlign.Center
+                    )
                 }
             }
         }

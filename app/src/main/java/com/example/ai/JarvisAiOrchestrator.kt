@@ -288,7 +288,12 @@ class JarvisAiOrchestrator {
                 AiEngineRoute.SECURITY_SENTINEL
             isSuperAiResearchPrompt(prompt) ->
                 AiEngineRoute.GEMINI_RESEARCH
-            else -> AiEngineRoute.GEMINI_CONVERSATION
+            looksLikeDeviceOrAgentGoal(prompt) ->
+                AiEngineRoute.GEMINI_CONVERSATION
+            isComplexReasoningPrompt(prompt) ->
+                AiEngineRoute.GEMINI_CONVERSATION
+            // Browser-first: every other question is answered by live web search.
+            else -> AiEngineRoute.GEMINI_RESEARCH
         }
     }
 
@@ -329,7 +334,9 @@ class JarvisAiOrchestrator {
         executedToolContext: List<String> = emptyList(),
         forceResearch: Boolean = false
     ): Flow<StreamChatEvent> = flow {
-        val useResearch = forceResearch || isSuperAiResearchPrompt(prompt)
+                // Browser-first: every question is answered by live web search (grounded research).
+        // Only complex reasoning and device-control prompts use the AI brain directly.
+        val useResearch = forceResearch || (!isComplexReasoningPrompt(prompt) && !looksLikeDeviceOrAgentGoal(prompt))
         val route = if (useResearch) AiEngineRoute.GEMINI_RESEARCH else AiEngineRoute.GEMINI_CONVERSATION
         val languageDirective = languageHint(settings.language)
         val enrichedPrompt = buildString {

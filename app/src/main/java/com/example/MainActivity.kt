@@ -130,7 +130,6 @@ import com.example.ui.theme.JarvisNavy
 import com.example.ui.theme.JarvisSurface
 import com.example.ui.theme.JarvisSurfaceElevated
 import com.example.voice.JarvisVoiceService
-import com.example.voice.VoicePhase
 import com.example.ui.theme.JarvisTextMuted
 import com.example.ui.theme.JarvisTextPrimary
 import com.example.voice.VoicePhase
@@ -1026,7 +1025,6 @@ private fun JarvisWorkspaceApp(
     }
 }
 
-@Composable
 /**
  * Bottom navigation pill (NUSU-style): Home (agent board), Chat, big center
  * mic for live voice, Settings, Updates (task queue).
@@ -1114,6 +1112,7 @@ private fun JarvisBottomNavPill(
     }
 }
 
+@Composable
 private fun DrawerNavItem(
     label: String,
     icon: ImageVector,

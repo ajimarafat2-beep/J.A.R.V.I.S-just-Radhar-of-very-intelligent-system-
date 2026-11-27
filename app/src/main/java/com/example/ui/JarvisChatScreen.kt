@@ -115,6 +115,11 @@ import com.example.ui.theme.JarvisTextPrimary
 import com.example.voice.VoicePhase
 
 import com.example.ai.JarvisMediaComposer
+import com.mikepenz.markdown.m3.Markdown
+import com.mikepenz.markdown.m3.markdownColors
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -132,6 +137,7 @@ fun JarvisChatScreen(
     onRequestMicPermission: () -> Unit,
     onRequestCameraAndMicPermission: () -> Unit,
     onDismissVoiceNotice: () -> Unit,
+    onStopGeneration: () -> Unit,
     modifier: Modifier = Modifier,
     voiceRmsProvider: (() -> Float)? = null
 ) {
@@ -162,10 +168,26 @@ fun JarvisChatScreen(
         if (bmp != null) attachedBitmap = bmp
     }
 
-    LaunchedEffect(uiState.messages.size) {
+    // Auto-scroll (B14): only follow the conversation while the user is
+    // already at the bottom. A new message animates down; a streaming reply
+    // follows instantly as its text grows. If the user scrolled up to read
+    // history, leave them alone.
+    var previousSize by remember { mutableStateOf(0) }
+    val lastMessageTextLength = uiState.messages.lastOrNull()?.text?.length ?: 0
+    LaunchedEffect(uiState.messages.size, lastMessageTextLength) {
         if (uiState.messages.isNotEmpty()) {
-            listState.animateScrollToItem(uiState.messages.lastIndex)
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()
+            val wasAtBottom = lastVisible == null ||
+                lastVisible.index >= (previousSize - 1).coerceAtLeast(0)
+            if (wasAtBottom) {
+                if (uiState.messages.size == previousSize) {
+                    listState.scrollToItem(uiState.messages.lastIndex)
+                } else {
+                    listState.animateScrollToItem(uiState.messages.lastIndex)
+                }
+            }
         }
+        previousSize = uiState.messages.size
     }
 
     Column(
@@ -408,14 +430,17 @@ fun JarvisChatScreen(
                     }
 
                     val canSend = inputText.isNotBlank() || attachedBitmap != null
+                    val isGenerating = uiState.isProcessing
                     Surface(
                         shape = CircleShape,
-                        color = if (canSend) JarvisCyan else JarvisSurfaceElevated,
+                        color = if (!isGenerating && canSend) JarvisCyan else JarvisSurfaceElevated,
                         modifier = Modifier
                             .size(44.dp)
                             .testTag("chat_send_button")
                             .clickable {
-                                if (canSend) {
+                                if (isGenerating) {
+                                    onStopGeneration()
+                                } else if (canSend) {
                                     onSendMessage(inputText, attachedBitmap)
                                     inputText = ""
                                     attachedBitmap = null
@@ -425,7 +450,14 @@ fun JarvisChatScreen(
                             }
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            if (canSend) {
+                            if (isGenerating) {
+                                Icon(
+                                    imageVector = Icons.Filled.Stop,
+                                    contentDescription = "Stop generating",
+                                    tint = JarvisTextPrimary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            } else if (canSend) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.Send,
                                     contentDescription = stringResource(R.string.chat_send),
@@ -749,6 +781,15 @@ private fun JarvisChatMessageItem(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                         )
                     }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = remember(message.timestampMillis) {
+                            SimpleDateFormat("h:mm a", Locale.getDefault())
+                                .format(Date(message.timestampMillis))
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = JarvisTextMuted
+                    )
                 }
                 Spacer(modifier = Modifier.height(6.dp))
 
@@ -834,11 +875,18 @@ private fun JarvisChatMessageItem(
                     }
                 }
 
-                Text(
-                    text = message.text.ifBlank { "Thinking…" },
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = if (message.isError) JarvisAlertRed else JarvisTextPrimary
-                )
+                if (message.isError) {
+                    Text(
+                        text = message.text.ifBlank { "Thinking…" },
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = JarvisAlertRed
+                    )
+                } else {
+                    Markdown(
+                        content = message.text.ifBlank { "Thinking…" },
+                        colors = markdownColors(text = JarvisTextPrimary)
+                    )
+                }
 
                 if (message.groundingLinks.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(8.dp))

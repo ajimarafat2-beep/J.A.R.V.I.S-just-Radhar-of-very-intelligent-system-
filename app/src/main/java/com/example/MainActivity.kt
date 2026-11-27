@@ -794,6 +794,7 @@ private fun JarvisWorkspaceApp(
                         cameraAndMicLauncher.launch(PermissionHelper.cameraAndMicrophonePermissions())
                     },
                     onDismissVoiceNotice = agentViewModel::dismissVoiceNotice,
+                    onStopGeneration = agentViewModel::stopGeneration,
                     modifier = screenModifier,
                     voiceRmsProvider = { liveVoiceRmsState.value }
                 )

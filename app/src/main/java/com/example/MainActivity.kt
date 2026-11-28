@@ -36,12 +36,14 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddComment
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
@@ -107,6 +109,8 @@ import com.example.auth.signOut
 import com.example.data.JarvisCreationsRepository
 import com.example.permissions.PermissionHelper
 import com.example.ui.JarvisAgentBoardScreen
+import com.example.ui.JarvisAppLockScreen
+import com.example.ui.JarvisChatListScreen
 import com.example.ui.JarvisAuthScreen
 import com.example.ui.JarvisBluetoothScreen
 import com.example.ui.JarvisChatScreen
@@ -209,6 +213,14 @@ private fun JarvisAppRoot(assistTriggerToken: Int, wakeTriggerToken: Int = 0) {
         }
     }
 
+    // App Lock: if a PIN is set, Jarvis asks for it every time the app opens.
+    val appLockPrefs = remember(context) {
+        context.getSharedPreferences("jarvis_ai_settings", Context.MODE_PRIVATE)
+    }
+    val appLockEnabled = appLockPrefs.getBoolean("app_lock_enabled", false)
+    val appLockPin = appLockPrefs.getString("app_lock_pin", "") ?: ""
+    var appUnlocked by rememberSaveable { mutableStateOf(false) }
+
     when {
         !setupCompleted -> {
             JarvisSetupScreen(
@@ -220,6 +232,12 @@ private fun JarvisAppRoot(assistTriggerToken: Int, wakeTriggerToken: Int = 0) {
                         .apply()
                     setupCompleted = true
                 }
+            )
+        }
+        appLockEnabled && appLockPin.isNotBlank() && !appUnlocked -> {
+            JarvisAppLockScreen(
+                correctPin = appLockPin,
+                onUnlock = { appUnlocked = true }
             )
         }
         currentUser != null -> {
@@ -722,9 +740,11 @@ private fun JarvisWorkspaceApp(
                 bottomBar = {
                     JarvisBottomNavPill(
                         currentRoute = currentRoute,
-                        isLive = agentState.voicePhase != VoicePhase.IDLE,
                         onNavigate = { currentRoute = it },
-                        onMic = agentViewModel::startOrInterruptLiveVoice
+                        onNewChat = {
+                            agentViewModel.startNewChat()
+                            currentRoute = AgentRoute.CHAT
+                        }
                     )
                 },
                 topBar = {
@@ -838,6 +858,16 @@ private fun JarvisWorkspaceApp(
                     onToggleLiveVoice = agentViewModel::startOrInterruptLiveVoice,
                     modifier = screenModifier,
                     voiceRmsProvider = { liveVoiceRmsState.value }
+                )
+
+                AgentRoute.CHAT_LIST -> JarvisChatListScreen(
+                    messages = agentState.messages,
+                    onOpenChat = { currentRoute = AgentRoute.CHAT },
+                    onNewChat = {
+                        agentViewModel.startNewChat()
+                        currentRoute = AgentRoute.CHAT
+                    },
+                    modifier = screenModifier
                 )
 
                 AgentRoute.STUDIO -> JarvisStudioScreen(
@@ -1017,6 +1047,10 @@ private fun JarvisWorkspaceApp(
                     onToggleOfflineIsolation = agentViewModel::setOfflineIsolationMode,
                     onClearChat = agentViewModel::startNewChat,
                     onResetDefaults = agentViewModel::resetSettings,
+                    onToggleAppLock = agentViewModel::setAppLockEnabled,
+                    onSaveAppLockPin = agentViewModel::setAppLockPin,
+                    onOpenConnectors = { currentRoute = AgentRoute.CONNECTORS },
+                    isOnline = agentState.isOnline,
                     modifier = screenModifier
                 )
             }
@@ -1032,9 +1066,8 @@ private fun JarvisWorkspaceApp(
 @Composable
 private fun JarvisBottomNavPill(
     currentRoute: AgentRoute,
-    isLive: Boolean,
     onNavigate: (AgentRoute) -> Unit,
-    onMic: () -> Unit
+    onNewChat: () -> Unit
 ) {
     Surface(
         color = JarvisSurface,
@@ -1051,61 +1084,107 @@ private fun JarvisBottomNavPill(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(
-                onClick = { onNavigate(AgentRoute.AGENT_BOARD) },
-                modifier = Modifier.size(44.dp).testTag("bottom_nav_home")
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .testTag("bottom_nav_agent")
+                    .clickable { onNavigate(AgentRoute.AGENT_BOARD) }
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
             ) {
                 Icon(
                     imageVector = Icons.Filled.Home,
-                    contentDescription = "Home",
-                    tint = if (currentRoute == AgentRoute.AGENT_BOARD) JarvisGold else JarvisTextMuted
+                    contentDescription = "Agent mode",
+                    tint = if (currentRoute == AgentRoute.AGENT_BOARD) JarvisGold else JarvisTextMuted,
+                    modifier = Modifier.size(24.dp)
+                )
+                Text(
+                    text = "Agent",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (currentRoute == AgentRoute.AGENT_BOARD) JarvisGold else JarvisTextMuted
                 )
             }
-            IconButton(
-                onClick = { onNavigate(AgentRoute.CHAT) },
-                modifier = Modifier.size(44.dp).testTag("bottom_nav_chat")
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .testTag("bottom_nav_chat")
+                    .clickable { onNavigate(AgentRoute.CHAT) }
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
             ) {
                 Icon(
                     imageVector = Icons.Filled.Chat,
-                    contentDescription = "Chat",
-                    tint = if (currentRoute == AgentRoute.CHAT) JarvisGold else JarvisTextMuted
+                    contentDescription = "Chat mode",
+                    tint = if (currentRoute == AgentRoute.CHAT) JarvisGold else JarvisTextMuted,
+                    modifier = Modifier.size(24.dp)
+                )
+                Text(
+                    text = "Chat",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (currentRoute == AgentRoute.CHAT) JarvisGold else JarvisTextMuted
                 )
             }
-            Surface(
-                shape = CircleShape,
-                color = if (isLive) JarvisGold else JarvisCyan,
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                    .size(56.dp)
-                    .testTag("bottom_nav_mic")
-                    .clickable { onMic() }
+                    .testTag("bottom_nav_new_chat")
+                    .clickable { onNewChat() }
+                    .padding(horizontal = 2.dp, vertical = 2.dp)
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Filled.Mic,
-                        contentDescription = "Talk to Jarvis",
-                        tint = JarvisNavy,
-                        modifier = Modifier.size(26.dp)
-                    )
+                Surface(
+                    shape = CircleShape,
+                    color = JarvisGold,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = "New chat",
+                            tint = JarvisNavy,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
                 }
+                Text(
+                    text = "New Chat",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = JarvisGold
+                )
             }
-            IconButton(
-                onClick = { onNavigate(AgentRoute.SETTINGS) },
-                modifier = Modifier.size(44.dp).testTag("bottom_nav_settings")
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .testTag("bottom_nav_settings")
+                    .clickable { onNavigate(AgentRoute.SETTINGS) }
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
             ) {
                 Icon(
                     imageVector = Icons.Filled.Settings,
                     contentDescription = "Settings",
-                    tint = if (currentRoute == AgentRoute.SETTINGS) JarvisGold else JarvisTextMuted
+                    tint = if (currentRoute == AgentRoute.SETTINGS) JarvisGold else JarvisTextMuted,
+                    modifier = Modifier.size(24.dp)
+                )
+                Text(
+                    text = "Settings",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (currentRoute == AgentRoute.SETTINGS) JarvisGold else JarvisTextMuted
                 )
             }
-            IconButton(
-                onClick = { onNavigate(AgentRoute.QUEUE) },
-                modifier = Modifier.size(44.dp).testTag("bottom_nav_updates")
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .testTag("bottom_nav_chat_list")
+                    .clickable { onNavigate(AgentRoute.CHAT_LIST) }
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Notifications,
-                    contentDescription = "Updates",
-                    tint = if (currentRoute == AgentRoute.QUEUE) JarvisGold else JarvisTextMuted
+                    imageVector = Icons.Filled.List,
+                    contentDescription = "Chat list",
+                    tint = if (currentRoute == AgentRoute.CHAT_LIST) JarvisGold else JarvisTextMuted,
+                    modifier = Modifier.size(24.dp)
+                )
+                Text(
+                    text = "Chat List",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (currentRoute == AgentRoute.CHAT_LIST) JarvisGold else JarvisTextMuted
                 )
             }
         }

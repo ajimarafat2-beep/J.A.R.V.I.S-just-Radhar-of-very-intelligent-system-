@@ -426,7 +426,15 @@ class JarvisAgentViewModel(
 
     fun startOrInterruptLiveVoice() {
         refreshPermissions()
-        val engine = voiceEngine ?: return
+        val engine = voiceEngine
+        if (engine == null) {
+            // The background voice service has not bound yet — bind it and say so.
+            bindVoiceService()
+            _uiState.update {
+                it.copy(voiceNotice = "Starting the voice service — tap the mic again in a moment, Sir.")
+            }
+            return
+        }
         when (engine.phase.value) {
             VoicePhase.SPEAKING -> engine.interruptAndListen()
             VoicePhase.COMMAND_LISTENING -> engine.stopAllListening()
@@ -478,6 +486,8 @@ class JarvisAgentViewModel(
     fun setAddressName(name: String) = settingsRepo.setAddressName(name)
     fun setOpenAiApiKey(key: String) = settingsRepo.setOpenAiApiKey(key)
     fun setAnthropicApiKey(key: String) = settingsRepo.setAnthropicApiKey(key)
+    fun setAppLockEnabled(enabled: Boolean) = settingsRepo.setAppLockEnabled(enabled)
+    fun setAppLockPin(pin: String) = settingsRepo.setAppLockPin(pin)
     fun setLiveVoiceChatEnabled(enabled: Boolean) = settingsRepo.setLiveVoiceChatEnabled(enabled)
     fun setVoiceReplyEnabled(enabled: Boolean) {
         settingsRepo.setVoiceReplyEnabled(enabled)
@@ -566,7 +576,7 @@ class JarvisAgentViewModel(
             }
 
             // 1. Try deterministic multi-step compound offline actions first
-            val compoundAction = offlineEngine.tryCompoundLocalAction(prompt, settings)
+            val compoundAction = runCatching { offlineEngine.tryCompoundLocalAction(prompt, settings) }.getOrNull()
             if (compoundAction != null) {
                 val (steps, res) = compoundAction
                 appendAssistantMessage(
@@ -580,7 +590,7 @@ class JarvisAgentViewModel(
 
             // 2. Try single deterministic offline action (only if not a multi-clause compound goal)
             if (!offlineEngine.isCompoundGoalPrompt(prompt)) {
-                val localAction = offlineEngine.tryLocalAction(prompt, settings)
+                val localAction = runCatching { offlineEngine.tryLocalAction(prompt, settings) }.getOrNull()
                 if (localAction != null) {
                     appendAssistantMessage(
                         text = localAction.responseText,
@@ -593,7 +603,7 @@ class JarvisAgentViewModel(
             }
 
             // 3. Multi-AI Orchestrator & Autonomous Agent Routing
-            val route = aiOrchestrator.selectRoute(prompt, hasImage = false)
+            val route = runCatching { aiOrchestrator.selectRoute(prompt, hasImage = false) }.getOrElse { AiEngineRoute.GEMINI_RESEARCH }
             _uiState.update { it.copy(activeEngineRoute = route) }
 
             if (!taskManager.canExecuteOnlineNow()) {
@@ -804,11 +814,13 @@ class JarvisAgentViewModel(
                                         }
                                     )
                                 }
-                                val (stepResult, stepShortcut) = offlineEngine.executeAgentTool(
-                                    toolName = step.toolName,
-                                    argument = step.argument,
-                                    settings = settings
-                                )
+                                val (stepResult, stepShortcut) = runCatching {
+                                    offlineEngine.executeAgentTool(
+                                        toolName = step.toolName,
+                                        argument = step.argument,
+                                        settings = settings
+                                    )
+                                }.getOrElse { "Step failed: ${step.toolName}" to null }
                                 executedSteps.add("${step.toolName}: ${stepResult.lineSequence().firstOrNull().orEmpty().take(95)}")
                                 if (primaryShortcut == null && stepShortcut != null) {
                                     primaryShortcut = stepShortcut
@@ -866,7 +878,8 @@ class JarvisAgentViewModel(
             }
         }
 
-        aiOrchestrator.streamConversation(prompt, settings, executedToolContext).collect { event ->
+        try {
+            aiOrchestrator.streamConversation(prompt, settings, executedToolContext).collect { event ->
             when (event) {
                 is StreamChatEvent.Chunk -> {
                     _uiState.update { state ->
@@ -923,6 +936,25 @@ class JarvisAgentViewModel(
                         )
                     }
                 }
+            }
+        }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _uiState.update { state ->
+                state.copy(
+                    isProcessing = false,
+                    messages = state.messages.map {
+                        if (it.id == streamMsgId) {
+                            it.copy(
+                                text = "Sorry, Sir \u2014 something went wrong while answering. Please try again.",
+                                engineRoute = AiEngineRoute.GEMINI_CONVERSATION,
+                                isStreaming = false,
+                                isError = true
+                            )
+                        } else it
+                    }
+                )
             }
         }
     }

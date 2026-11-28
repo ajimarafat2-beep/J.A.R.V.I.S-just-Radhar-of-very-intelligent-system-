@@ -432,7 +432,16 @@ class JarvisAiOrchestrator {
                     )
                 )
             } else {
-                emit(StreamChatEvent.Error("Gemini returned an empty response.", route))
+                // Main brain is Gemini; if Gemini returns nothing, another connected AI takes over.
+                val fallbackText = runCatching { MultiAiClient().chat(prompt, settings.openAiApiKey, settings.anthropicApiKey) }.getOrNull()
+                if (!fallbackText.isNullOrBlank()) {
+                    val cleanFallback = fallbackText.trim()
+                    conversationLog.add(content("user") { text(prompt) })
+                    conversationLog.add(content("model") { text(cleanFallback) })
+                    emit(StreamChatEvent.Complete(fullText = cleanFallback, route = route, groundingLinks = emptyList()))
+                } else {
+                    emit(StreamChatEvent.Error("Gemini returned an empty response.", route))
+                }
             }
         } catch (e: TimeoutCancellationException) {
             Log.e(TAG, "Streaming timed out", e)
@@ -444,12 +453,21 @@ class JarvisAiOrchestrator {
             emit(StreamChatEvent.Error("AI quota/rate limit exceeded: ${e.localizedMessage ?: "Try again later."}", route))
         } catch (e: Exception) {
             Log.e(TAG, "Gemini streaming failed", e)
-            val friendlyMessage = if (e is IllegalStateException && e.message?.contains("FirebaseApp is not initialized") == true) {
-                "Jarvis AI is unavailable right now — sign in with Google to enable chat."
+            // Main brain is Gemini; if Gemini fails, another connected AI takes over.
+            val fallbackText = runCatching { MultiAiClient().chat(prompt, settings.openAiApiKey, settings.anthropicApiKey) }.getOrNull()
+            if (!fallbackText.isNullOrBlank()) {
+                val cleanFallback = fallbackText.trim()
+                conversationLog.add(content("user") { text(prompt) })
+                conversationLog.add(content("model") { text(cleanFallback) })
+                emit(StreamChatEvent.Complete(fullText = cleanFallback, route = route, groundingLinks = emptyList()))
             } else {
-                e.localizedMessage ?: "AI request failed. Check internet & App Check."
+                val friendlyMessage = if (e is IllegalStateException && e.message?.contains("FirebaseApp is not initialized") == true) {
+                    "Jarvis AI is unavailable right now — sign in with Google to enable chat."
+                } else {
+                    e.localizedMessage ?: "AI request failed. Check internet & App Check."
+                }
+                emit(StreamChatEvent.Error(friendlyMessage, route))
             }
-            emit(StreamChatEvent.Error(friendlyMessage, route))
         }
     }
 

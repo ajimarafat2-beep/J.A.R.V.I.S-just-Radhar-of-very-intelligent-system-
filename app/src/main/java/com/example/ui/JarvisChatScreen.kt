@@ -924,15 +924,15 @@ private fun JarvisChatMessageItem(
                     }
                 }
 
-                if (message.isError) {
+                if (message.isError || message.text.isBlank()) {
                     Text(
                         text = message.text.ifBlank { "Thinking…" },
                         style = MaterialTheme.typography.bodyLarge,
-                        color = JarvisAlertRed
+                        color = if (message.isError) JarvisAlertRed else JarvisTextMuted
                     )
                 } else {
                     Markdown(
-                        content = message.text.ifBlank { "Thinking…" },
+                        content = message.text,
                         colors = markdownColor(text = JarvisTextPrimary)
                     )
                 }

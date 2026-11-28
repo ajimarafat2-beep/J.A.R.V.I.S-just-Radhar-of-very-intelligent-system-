@@ -19,12 +19,20 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shield
@@ -64,6 +72,7 @@ import com.example.settings.JarvisSettings
 import com.example.ui.theme.JarvisAlertRed
 import com.example.ui.theme.JarvisBorder
 import com.example.ui.theme.JarvisCyan
+import com.example.ui.theme.JarvisEmerald
 import com.example.ui.theme.JarvisGold
 import com.example.ui.theme.JarvisNavy
 import com.example.ui.theme.JarvisSurface
@@ -95,6 +104,10 @@ fun JarvisSettingsScreen(
     onToggleOfflineIsolation: (Boolean) -> Unit,
     onClearChat: () -> Unit,
     onResetDefaults: () -> Unit,
+    onToggleAppLock: (Boolean) -> Unit,
+    onSaveAppLockPin: (String) -> Unit,
+    onOpenConnectors: () -> Unit,
+    isOnline: Boolean,
     modifier: Modifier = Modifier
 ) {
     var wakeWordDraft by remember { mutableStateOf(settings.wakeWord) }
@@ -114,6 +127,9 @@ fun JarvisSettingsScreen(
     LaunchedEffect(settings.anthropicApiKey) {
         anthropicApiKeyDraft = settings.anthropicApiKey
     }        
+    var appLockPinDraft by remember { mutableStateOf(settings.appLockPin) }
+    LaunchedEffect(settings.appLockPin) { appLockPinDraft = settings.appLockPin }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -139,6 +155,11 @@ fun JarvisSettingsScreen(
                     color = JarvisTextMuted
                 )
             }
+        }
+
+        // Personalization — how Jarvis talks to you and sounds.
+        item {
+            SettingsSectionHeader("Personalization")
         }
 
         // 1. Language Card (Default: English)
@@ -363,31 +384,14 @@ fun JarvisSettingsScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
-                OutlinedButton(
-                    onClick = {
-                        val pm = context.packageManager
-                        val target = listOf(
-                            Intent(Settings.ACTION_VOICE_INPUT_SETTINGS),
-                            Intent(Settings.ACTION_INPUT_METHOD_SETTINGS),
-                            Intent(Settings.ACTION_SETTINGS)
-                        ).firstOrNull { it.resolveActivity(pm) != null }
-                            ?: Intent(Settings.ACTION_SETTINGS)
-                        runCatching {
-                            context.startActivity(target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                        }
-                    },
-                    border = BorderStroke(1.dp, JarvisCyan),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("settings_default_assistant_button")
-                ) {
-                    Text("Set J.A.R.V.I.S as Default Phone Assistant", color = JarvisCyan, fontWeight = FontWeight.SemiBold)
-                }
             }
         }
+
+        // Connection — Gemini is the main brain; Claude & ChatGPT are the fallback.
+        item {
+            SettingsSectionHeader("Connection")
+        }
+
         // Multi-AI API Keys
         item {
             SettingsCard(
@@ -463,6 +467,143 @@ fun JarvisSettingsScreen(
                     ) {
                         Text("Save", fontWeight = FontWeight.Bold)
                     }
+                }
+            }
+        }
+
+        // Browser & Internet — Jarvis answers from the live web.
+        item {
+            SettingsCard(
+                icon = Icons.Filled.Public,
+                title = "Browser & Internet",
+                subtitle = "Jarvis answers from the live web first. Main brain: Google Gemini. If Gemini has a problem, Claude or ChatGPT takes over automatically."
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (isOnline) Icons.Filled.CloudDone else Icons.Filled.CloudOff,
+                        contentDescription = null,
+                        tint = if (isOnline) JarvisEmerald else JarvisAlertRed
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isOnline) "Online — connected to the internet" else "Offline — on-device mode (voice & device control still work)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = JarvisTextPrimary
+                    )
+                }
+            }
+        }
+
+        // Apps — every app Jarvis can open.
+        item {
+            SettingsSectionHeader("Apps")
+        }
+
+        item {
+            SettingsCard(
+                icon = Icons.Filled.Apps,
+                title = "Connected Apps",
+                subtitle = "Jarvis can find and open any app on your phone, and discover new apps online."
+            ) {
+                OutlinedButton(
+                    onClick = onOpenConnectors,
+                    border = BorderStroke(1.dp, JarvisCyan),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("settings_open_connectors_button")
+                ) {
+                    Text("Open App Connector", color = JarvisCyan, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+
+        // App Lock — a PIN on the front door.
+        item {
+            SettingsSectionHeader("App Lock")
+        }
+
+        item {
+            SettingsCard(
+                icon = Icons.Filled.Lock,
+                title = "App Lock",
+                subtitle = "Lock Jarvis with a 4-digit PIN. Jarvis asks for the PIN every time the app opens."
+            ) {
+                SettingsSwitchRow(
+                    label = "Lock Jarvis with a PIN",
+                    description = "Set a PIN below first, then turn this on.",
+                    checked = settings.appLockEnabled,
+                    testTag = "settings_app_lock_switch",
+                    onCheckedChange = onToggleAppLock
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = appLockPinDraft,
+                        onValueChange = { appLockPinDraft = it.filter { ch -> ch.isDigit() }.take(4) },
+                        label = { Text("4-digit PIN") },
+                        placeholder = { Text("1234") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("settings_app_lock_pin_field")
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = { onSaveAppLockPin(appLockPinDraft) },
+                        colors = ButtonDefaults.buttonColors(containerColor = JarvisCyan, contentColor = JarvisNavy),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .height(52.dp)
+                            .testTag("settings_save_app_lock_pin_button")
+                    ) {
+                        Text("Save", fontWeight = FontWeight.Bold)
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "If you forget the PIN, clear the app data (Settings > Apps > Jarvis > Storage) to reset it.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = JarvisTextMuted
+                )
+            }
+        }
+
+        // Set Default — make Jarvis the phone's default assistant.
+        item {
+            SettingsSectionHeader("Set Default")
+        }
+
+        item {
+            SettingsCard(
+                icon = Icons.Filled.PhoneAndroid,
+                title = "Set Default",
+                subtitle = "Make Jarvis your phone's default assistant."
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        val pm = context.packageManager
+                        val target = listOf(
+                            Intent(Settings.ACTION_VOICE_INPUT_SETTINGS),
+                            Intent(Settings.ACTION_INPUT_METHOD_SETTINGS),
+                            Intent(Settings.ACTION_SETTINGS)
+                        ).firstOrNull { it.resolveActivity(pm) != null }
+                            ?: Intent(Settings.ACTION_SETTINGS)
+                        runCatching {
+                            context.startActivity(target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        }
+                    },
+                    border = BorderStroke(1.dp, JarvisCyan),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("settings_default_assistant_button")
+                ) {
+                    Text("Set J.A.R.V.I.S as Default Phone Assistant", color = JarvisCyan, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -625,6 +766,18 @@ fun JarvisSettingsScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SettingsSectionHeader(title: String) {
+    Column(modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth()) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            color = JarvisGold,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 

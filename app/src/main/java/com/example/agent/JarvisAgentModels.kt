@@ -25,6 +25,7 @@ import java.util.UUID
 enum class AgentRoute {
     AGENT_BOARD,
     CHAT,
+    CHAT_LIST,
     STUDIO,
     PHONE_CONTROL,
     SMART_HOME,

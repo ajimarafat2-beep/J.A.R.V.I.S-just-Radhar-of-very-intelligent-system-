@@ -25,7 +25,9 @@ data class JarvisSettings(
     val speechPitch: Float = 1.0f,
     val offlineIsolationMode: Boolean = false,
     val openAiApiKey: String = "",
-    val anthropicApiKey: String = ""
+    val anthropicApiKey: String = "",
+    val appLockEnabled: Boolean = false,
+    val appLockPin: String = ""
 )
 
 class JarvisSettingsRepository(context: Context) {
@@ -52,7 +54,9 @@ class JarvisSettingsRepository(context: Context) {
             speechPitch = prefs.getFloat(KEY_SPEECH_PITCH, 1.0f).coerceIn(0.7f, 1.4f),
             offlineIsolationMode = prefs.getBoolean(KEY_OFFLINE_ISOLATION, false),
             openAiApiKey = prefs.getString(KEY_OPENAI_API_KEY, "") ?: "",
-            anthropicApiKey = prefs.getString(KEY_ANTHROPIC_API_KEY, "") ?: ""
+            anthropicApiKey = prefs.getString(KEY_ANTHROPIC_API_KEY, "") ?: "",
+            appLockEnabled = prefs.getBoolean(KEY_APP_LOCK_ENABLED, false),
+            appLockPin = prefs.getString(KEY_APP_LOCK_PIN, "") ?: ""
         )
     }
 
@@ -116,6 +120,17 @@ class JarvisSettingsRepository(context: Context) {
         _settings.update { it.copy(anthropicApiKey = clean) }
     }
 
+    fun setAppLockEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_APP_LOCK_ENABLED, enabled).apply()
+        _settings.update { it.copy(appLockEnabled = enabled) }
+    }
+
+    fun setAppLockPin(pin: String) {
+        val clean = pin.filter { it.isDigit() }.take(4)
+        prefs.edit().putString(KEY_APP_LOCK_PIN, clean).apply()
+        _settings.update { it.copy(appLockPin = clean) }
+    }
+
     fun resetToDefaults() {
         prefs.edit().clear().apply()
         _settings.value = JarvisSettings()
@@ -134,6 +149,8 @@ class JarvisSettingsRepository(context: Context) {
         private const val KEY_OFFLINE_ISOLATION = "offline_isolation"
         private const val KEY_OPENAI_API_KEY = "openai_api_key"
         private const val KEY_ANTHROPIC_API_KEY = "anthropic_api_key"
+        private const val KEY_APP_LOCK_ENABLED = "app_lock_enabled"
+        private const val KEY_APP_LOCK_PIN = "app_lock_pin"
 
         private val jarvisPhoneticVariants = listOf(
             "jarvis", "jarves", "jarvish", "jervis", "charvis", "charves",
